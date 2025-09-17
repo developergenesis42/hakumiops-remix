@@ -1,5 +1,23 @@
 import { useState, useEffect } from 'react';
 import { SessionWithDetails, Service, Room, Therapist } from '../types';
+import { usePrintNode } from '~/hooks/usePrintNode';
+
+// Utility function to round time to nearest 5-minute increment
+const roundToNearestFiveMinutes = (date: Date): Date => {
+  const minutes = date.getMinutes();
+  const roundedMinutes = Math.ceil(minutes / 5) * 5;
+  
+  const roundedDate = new Date(date);
+  roundedDate.setMinutes(roundedMinutes, 0, 0);
+  
+  // If we rounded up to 60 minutes, move to next hour
+  if (roundedDate.getMinutes() === 60) {
+    roundedDate.setHours(roundedDate.getHours() + 1);
+    roundedDate.setMinutes(0);
+  }
+  
+  return roundedDate;
+};
 
 // Services data from the HTML version
 const SERVICES: Service[] = [
@@ -41,10 +59,17 @@ export default function ModifySessionModal({
 }: ModifySessionModalProps) {
   const [selectedServiceId, setSelectedServiceId] = useState<number | ''>('');
   const [selectedRoomId, setSelectedRoomId] = useState<string>('');
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [printError, setPrintError] = useState<string | null>(null);
+  
+  // PrintNode hook for automatic printing
+  const { getDefaultPrinter, printReceipt } = usePrintNode();
 
   // Initialize form when modal opens
   useEffect(() => {
     if (isOpen && session) {
+      setIsPrinting(false);
+      setPrintError(null);
       setSelectedServiceId(session.service_id);
       setSelectedRoomId(session.room_id || '');
     }
@@ -77,16 +102,65 @@ export default function ModifySessionModal({
     return selectedServiceId && selectedRoomId;
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!isFormValid() || !session) return;
 
-    onConfirmModify({
-      sessionId: session.id,
-      newServiceId: selectedServiceId as number,
-      newRoomId: selectedRoomId
-    });
+    try {
+      setIsPrinting(true);
+      setPrintError(null);
 
-    onClose();
+      // Call the original confirm handler first (modify session)
+      onConfirmModify({
+        sessionId: session.id,
+        newServiceId: selectedServiceId as number,
+        newRoomId: selectedRoomId
+      });
+
+      // Get the new service and room data for printing
+      const newService = SERVICES.find(s => s.id === selectedServiceId);
+      const newRoom = rooms.find(r => r.id === selectedRoomId);
+      
+      if (!newService || !newRoom) {
+        throw new Error('Unable to find service or room data for printing');
+      }
+
+      // Create rounded timestamp for the updated receipt
+      const now = new Date();
+      const roundedTime = roundToNearestFiveMinutes(now);
+
+      // Get default printer and print updated receipt automatically
+      const defaultPrinter = await getDefaultPrinter();
+      
+      if (!defaultPrinter) {
+        throw new Error('No printer available. Please check your printer setup.');
+      }
+
+      const receiptData = {
+        sessionId: session.id,
+        clientName: 'Walk-in Customer', // Default client name
+        service: newService.name,
+        duration: newService.duration,
+        price: newService.price,
+        therapist: getTherapistNames(),
+        room: newRoom.name,
+        timestamp: roundedTime.toLocaleString(),
+        paymentMethod: 'Cash'
+      };
+
+      // Print the updated receipt automatically
+      await printReceipt(defaultPrinter.id, receiptData);
+
+      // Close modal after successful printing
+      onClose();
+
+    } catch (err) {
+      console.error('Failed to print updated receipt:', err);
+      setPrintError(err instanceof Error ? err.message : 'Failed to print updated receipt');
+      // Still close the modal even if printing fails - session was modified successfully
+      onClose();
+    } finally {
+      setIsPrinting(false);
+    }
   };
 
   const handleCancel = () => {
@@ -182,18 +256,35 @@ export default function ModifySessionModal({
           <div className="flex justify-between items-center pt-4">
             <button
               onClick={handleCancel}
-              className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-6 rounded-lg transition duration-200"
+              disabled={isPrinting}
+              className="bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-lg transition duration-200"
             >
               Cancel
             </button>
             <button
               onClick={handleConfirm}
-              disabled={!isFormValid()}
-              className="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-500 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-lg transition duration-200"
+              disabled={!isFormValid() || isPrinting}
+              className="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-500 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-lg transition duration-200 flex items-center space-x-2"
             >
-              Confirm Changes
+              {isPrinting ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  <span>Updating & Printing...</span>
+                </>
+              ) : (
+                <span>Confirm Changes</span>
+              )}
             </button>
           </div>
+          
+          {/* Print Error Display */}
+          {printError && (
+            <div className="mt-3 p-3 bg-red-900/50 border border-red-500 text-red-200 rounded-lg text-sm">
+              <p className="font-semibold">Printing Error:</p>
+              <p>{printError}</p>
+              <p className="text-xs mt-1 text-red-300">Session was updated successfully, but printing failed.</p>
+            </div>
+          )}
         </div>
       </div>
     </>

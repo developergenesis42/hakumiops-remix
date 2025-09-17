@@ -1,5 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Service, ServiceCategory, Room, Therapist, BookingWithDetails } from '../types';
+import { usePrintNode } from '~/hooks/usePrintNode';
+
+// Utility function to round time to nearest 5-minute increment
+const roundToNearestFiveMinutes = (date: Date): Date => {
+  const minutes = date.getMinutes();
+  const roundedMinutes = Math.ceil(minutes / 5) * 5;
+  
+  const roundedDate = new Date(date);
+  roundedDate.setMinutes(roundedMinutes, 0, 0);
+  
+  // If we rounded up to 60 minutes, move to next hour
+  if (roundedDate.getMinutes() === 60) {
+    roundedDate.setHours(roundedDate.getHours() + 1);
+    roundedDate.setMinutes(0);
+  }
+  
+  return roundedDate;
+};
 
 // Services data from the HTML version
 const SERVICES: Service[] = [
@@ -52,10 +70,18 @@ export default function SessionModal({
   const [selectedTherapist2Id, setSelectedTherapist2Id] = useState<string>('');
   const [selectedRoomId, setSelectedRoomId] = useState<string>('');
   const [isFromBooking, setIsFromBooking] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [printError, setPrintError] = useState<string | null>(null);
+  
+  // PrintNode hook for automatic printing
+  const { getDefaultPrinter, printReceipt } = usePrintNode();
 
   // Reset form when modal opens
   useEffect(() => {
     if (isOpen) {
+      setIsPrinting(false);
+      setPrintError(null);
+      
       if (bookingId && bookingData) {
         // Opening from booking - pre-populate from booking data
         setIsFromBooking(true);
@@ -144,7 +170,7 @@ export default function SessionModal({
     return true;
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!isFormValid()) return;
     
     const therapistIds = [selectedTherapist1Id];
@@ -152,14 +178,66 @@ export default function SessionModal({
       therapistIds.push(selectedTherapist2Id);
     }
     
-    onConfirmSession({
-      serviceId: selectedServiceId as number,
-      therapistIds,
-      roomId: selectedRoomId,
-      bookingId: bookingId
-    });
+    // Get selected data for printing
+    const selectedService = SERVICES.find(s => s.id === selectedServiceId);
+    const selectedTherapist1 = therapists.find(t => t.id === selectedTherapist1Id);
+    const selectedTherapist2 = selectedTherapist2Id ? therapists.find(t => t.id === selectedTherapist2Id) : null;
+    const selectedRoom = rooms.find(r => r.id === selectedRoomId);
     
-    onClose();
+    if (!selectedService || !selectedTherapist1 || !selectedRoom) return;
+    
+    try {
+      setIsPrinting(true);
+      setPrintError(null);
+      
+      // Call the original confirm handler first (create session)
+      onConfirmSession({
+        serviceId: selectedServiceId as number,
+        therapistIds,
+        roomId: selectedRoomId,
+        bookingId: bookingId
+      });
+      
+      // Create rounded timestamp for the sales slip
+      const now = new Date();
+      const roundedTime = roundToNearestFiveMinutes(now);
+      
+      // Get default printer and print receipt automatically
+      const defaultPrinter = await getDefaultPrinter();
+      
+      if (!defaultPrinter) {
+        throw new Error('No printer available. Please check your printer setup.');
+      }
+      
+      const receiptData = {
+        sessionId: `temp-${Date.now()}`, // Temporary ID
+        clientName: 'Walk-in Customer',
+        service: selectedService.name,
+        duration: selectedService.duration,
+        price: selectedService.price,
+        therapist: [
+          selectedTherapist1.name,
+          ...(selectedTherapist2 ? [selectedTherapist2.name] : [])
+        ].join(', '),
+        room: selectedRoom.name,
+        timestamp: roundedTime.toLocaleString(),
+        paymentMethod: 'Cash'
+      };
+      
+      // Print the receipt automatically
+      await printReceipt(defaultPrinter.id, receiptData);
+      
+      // Close modal after successful printing
+      onClose();
+      
+    } catch (err) {
+      console.error('Failed to print receipt:', err);
+      setPrintError(err instanceof Error ? err.message : 'Failed to print receipt');
+      // Still close the modal even if printing fails - session was created successfully
+      onClose();
+    } finally {
+      setIsPrinting(false);
+    }
   };
 
   const handleCancel = () => {
@@ -322,18 +400,35 @@ export default function SessionModal({
           <div className="flex justify-between items-center pt-4">
             <button
               onClick={handleCancel}
-              className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-6 rounded-lg transition duration-200"
+              disabled={isPrinting}
+              className="bg-gray-600 hover:bg-gray-500 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-lg transition duration-200"
             >
               Cancel
             </button>
             <button
               onClick={handleConfirm}
-              disabled={!isFormValid()}
-              className="bg-green-600 hover:bg-green-500 disabled:bg-gray-500 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-lg transition duration-200"
+              disabled={!isFormValid() || isPrinting}
+              className="bg-green-600 hover:bg-green-500 disabled:bg-gray-500 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-lg transition duration-200 flex items-center space-x-2"
             >
-              Confirm
+              {isPrinting ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  <span>Creating & Printing...</span>
+                </>
+              ) : (
+                <span>Confirm</span>
+              )}
             </button>
           </div>
+          
+          {/* Print Error Display */}
+          {printError && (
+            <div className="mt-3 p-3 bg-red-900/50 border border-red-500 text-red-200 rounded-lg text-sm">
+              <p className="font-semibold">Printing Error:</p>
+              <p>{printError}</p>
+              <p className="text-xs mt-1 text-red-300">Session was created successfully, but printing failed.</p>
+            </div>
+          )}
         </div>
       </div>
     </>

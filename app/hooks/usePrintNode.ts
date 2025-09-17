@@ -57,6 +57,18 @@ export function usePrintNode() {
     }
   }, []);
 
+  const getDefaultPrinter = useCallback(async (): Promise<PrintNodePrinter | null> => {
+    try {
+      setError(null);
+      const printers = await fetchPrinters();
+      return printers.find(p => p.default) || printers[0] || null;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to get default printer';
+      setError(errorMessage);
+      return null;
+    }
+  }, [fetchPrinters]);
+
   const printReceipt = useCallback(async (printerId: number, receiptData: ReceiptData): Promise<void> => {
     try {
       setIsLoading(true);
@@ -160,6 +172,7 @@ export function usePrintNode() {
     isLoading,
     error,
     fetchPrinters,
+    getDefaultPrinter,
     printReceipt,
     printDailyReport,
     printCustom,
