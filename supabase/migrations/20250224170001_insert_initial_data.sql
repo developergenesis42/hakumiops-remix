@@ -37,24 +37,15 @@ INSERT INTO therapists (name, is_on_duty, status, check_in_time) VALUES
   ('Emma Wilson', true, 'Rostered', NULL),
   ('Lisa Chen', true, 'Available', NOW());
 
--- Enable Row Level Security (RLS)
-ALTER TABLE therapists ENABLE ROW LEVEL SECURITY;
-ALTER TABLE rooms ENABLE ROW LEVEL SECURITY;
-ALTER TABLE services ENABLE ROW LEVEL SECURITY;
-ALTER TABLE bookings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE therapist_expenses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE shop_expenses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE walkouts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE daily_reports ENABLE ROW LEVEL SECURITY;
-
--- Create policies for public access (adjust based on your auth requirements)
-CREATE POLICY "Allow all operations for authenticated users" ON therapists FOR ALL USING (true);
-CREATE POLICY "Allow all operations for authenticated users" ON rooms FOR ALL USING (true);
-CREATE POLICY "Allow all operations for authenticated users" ON services FOR ALL USING (true);
-CREATE POLICY "Allow all operations for authenticated users" ON bookings FOR ALL USING (true);
-CREATE POLICY "Allow all operations for authenticated users" ON sessions FOR ALL USING (true);
-CREATE POLICY "Allow all operations for authenticated users" ON therapist_expenses FOR ALL USING (true);
-CREATE POLICY "Allow all operations for authenticated users" ON shop_expenses FOR ALL USING (true);
-CREATE POLICY "Allow all operations for authenticated users" ON walkouts FOR ALL USING (true);
-CREATE POLICY "Allow all operations for authenticated users" ON daily_reports FOR ALL USING (true);
+-- Disable Row Level Security (RLS) for spa operations app
+-- This app doesn't require user authentication, so we can disable RLS
+-- to allow public access via the anonymous key
+ALTER TABLE therapists DISABLE ROW LEVEL SECURITY;
+ALTER TABLE rooms DISABLE ROW LEVEL SECURITY;
+ALTER TABLE services DISABLE ROW LEVEL SECURITY;
+ALTER TABLE bookings DISABLE ROW LEVEL SECURITY;
+ALTER TABLE sessions DISABLE ROW LEVEL SECURITY;
+ALTER TABLE therapist_expenses DISABLE ROW LEVEL SECURITY;
+ALTER TABLE shop_expenses DISABLE ROW LEVEL SECURITY;
+ALTER TABLE walkouts DISABLE ROW LEVEL SECURITY;
+ALTER TABLE daily_reports DISABLE ROW LEVEL SECURITY;
