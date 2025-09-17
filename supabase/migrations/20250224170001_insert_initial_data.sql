@@ -2,10 +2,13 @@
 INSERT INTO rooms (name, type, status) VALUES
   ('Room 1', 'Shower', 'Available'),
   ('Room 2', 'Shower', 'Available'),
-  ('Room 3', 'Large Shower', 'Available'),
+  ('Room 3', 'Shower', 'Available'),
   ('Room 4', 'VIP Jacuzzi', 'Available'),
   ('Room 5', 'VIP Jacuzzi', 'Available'),
-  ('Room 6', 'Shower', 'Available');
+  ('Room 6', 'VIP Jacuzzi', 'Available'),
+  ('Room 7', 'Large Shower', 'Available'),
+  ('Room 8', 'Large Shower', 'Available'),
+  ('Room 9', 'VIP Jacuzzi', 'Available');
 
 -- Insert initial services
 INSERT INTO services (category, room_type, name, duration, price, payout) VALUES
