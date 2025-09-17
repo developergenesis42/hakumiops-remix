@@ -1,3 +1,4 @@
+import React from 'react';
 import { Therapist, TherapistStatus, SessionWithDetails, BookingWithDetails } from '../types';
 
 interface TherapistCardProps {
@@ -5,6 +6,7 @@ interface TherapistCardProps {
   activeSession?: SessionWithDetails;
   bookings?: BookingWithDetails[];
   totalExpenses?: number;
+  rooms?: Array<{id: string; name: string}>;
   onTherapistClick?: (therapist: Therapist) => void;
   onBookSession?: (therapistId: string) => void;
   onAddExpense?: (therapistId: string) => void;
@@ -12,6 +14,8 @@ interface TherapistCardProps {
   onModifySession?: (sessionId: string) => void;
   onBeginSessionTimer?: (sessionId: string) => void;
   onCompleteSession?: (sessionId: string) => void;
+  onBookingClick?: (bookingId: string) => void;
+  onCancelBooking?: (bookingId: string) => void;
   getSessionTimeRemaining?: (session: SessionWithDetails) => string | null;
 }
 
@@ -20,18 +24,35 @@ export default function TherapistCard({
   activeSession,
   bookings = [],
   totalExpenses = 0,
+  rooms = [],
   onTherapistClick,
   onBookSession,
   onAddExpense,
   onDepartTherapist,
-  onModifySession,
+  onModifySession: _onModifySession,
   onBeginSessionTimer: _onBeginSessionTimer,
   onCompleteSession: _onCompleteSession,
+  onBookingClick: _onBookingClick,
+  onCancelBooking: _onCancelBooking,
   getSessionTimeRemaining
 }: TherapistCardProps) {
+  // Force re-render every second to update timers
+  const [, forceUpdate] = React.useState({});
+  
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      forceUpdate({});
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
   // Suppress unused variable warnings for event handlers that are used via event delegation
+  void _onModifySession;
   void _onBeginSessionTimer;
   void _onCompleteSession;
+  void _onBookingClick;
+  void _onCancelBooking;
   const getStatusClass = (status: TherapistStatus) => {
     switch (status) {
       case 'Available':
@@ -60,19 +81,31 @@ export default function TherapistCard({
     return bookings.filter(b => b.therapist_ids.includes(therapistId));
   };
 
+
   const getRoomIndicators = (therapist: Therapist, activeSession?: SessionWithDetails) => {
     let indicators = '';
+    
+    // Helper function to extract room number from room name
+    const getRoomNumber = (roomName: string) => {
+      // Extract number from "Room X" format, or return the name as-is if no "Room" prefix
+      const match = roomName.match(/Room (\d+)/);
+      return match ? match[1] : roomName;
+    };
     
     // Completed rooms
     if (therapist.completed_room_ids && therapist.completed_room_ids.length > 0) {
       therapist.completed_room_ids.forEach(roomId => {
-        indicators += `<div class="room-number room-completed">${roomId}</div>`;
+        const room = rooms.find(r => r.id === roomId);
+        const roomDisplay = room ? getRoomNumber(room.name) : roomId; // Fallback to ID if room not found
+        indicators += `<div class="room-number room-completed">${roomDisplay}</div>`;
       });
     }
     
     // Active room
     if (activeSession) {
-      indicators += `<div class="room-number room-active">${activeSession.room_id}</div>`;
+      const room = rooms.find(r => r.id === activeSession.room_id);
+      const roomDisplay = room ? getRoomNumber(room.name) : activeSession.room_id; // Fallback to ID if room not found
+      indicators += `<div class="room-number room-active">${roomDisplay}</div>`;
     }
     
     return indicators;
@@ -83,6 +116,19 @@ export default function TherapistCard({
     
     const service = activeSession.service;
     const room = activeSession.room;
+    
+    // Add null checks for service and room
+    if (!service || !room) {
+      console.warn('Session missing service or room data:', activeSession);
+      return `
+        <div class="bg-gray-800/50 p-3 rounded-lg mt-3 space-y-2 border-l-4 border-red-500">
+          <div class="flex justify-between items-center">
+            <h5 class="font-bold text-sm text-white">Session in progress</h5>
+            <span class="text-xs text-red-300">Data missing</span>
+          </div>
+        </div>
+      `;
+    }
     
     if (activeSession.status === 'In Progress') {
       return `
@@ -127,9 +173,36 @@ export default function TherapistCard({
     const therapistBookings = getTherapistBookings(therapistId);
     if (therapistBookings.length === 0) return '';
     
-    const bookingItems = therapistBookings.map(b => {
-      const service = b.service;
-      return `<div data-booking-id="${b.id}" class="booking-item bg-gray-800/50 text-xs p-2 rounded-md flex justify-between items-center"><span>${formatTime(b.start_time)} - ${service.name.substring(0,15)}...</span><span class="text-green-400">▶</span></div>`;
+    const bookingItems = therapistBookings.map(booking => {
+      const service = booking.service;
+      const startTime = new Date(booking.start_time).toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+      
+      return `
+        <div 
+          data-booking-id="${booking.id}" 
+          class="booking-item bg-gray-800/50 text-xs p-2 rounded-md flex justify-between items-center hover:bg-gray-700/50 transition-colors"
+        >
+          <div 
+            class="flex-1 cursor-pointer"
+            onclick="window.bookingClickHandler && window.bookingClickHandler('${booking.id}')"
+          >
+            <span>${startTime} - ${service.name.substring(0, 15)}...</span>
+            <span class="text-green-400 ml-2">▶</span>
+          </div>
+          <button 
+            data-booking-id="${booking.id}"
+            class="cancel-booking-btn text-red-400 hover:text-red-300 hover:bg-red-900/20 p-1 rounded transition-colors ml-2"
+            onclick="event.stopPropagation(); window.cancelBookingHandler && window.cancelBookingHandler('${booking.id}')"
+            title="Cancel booking"
+          >
+            ✕
+          </button>
+        </div>
+      `;
     }).join('');
     
     return `
@@ -227,18 +300,6 @@ export default function TherapistCard({
             >
               Expense
             </button>
-            {activeSession && (
-              <button 
-                data-session-id={activeSession.id}
-                className="modify-session-btn bg-purple-600 hover:bg-purple-500 text-white px-3 py-1 text-sm rounded"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onModifySession?.(activeSession.id);
-                }}
-              >
-                Modify
-              </button>
-            )}
             <button 
               data-therapist-id={therapist.id}
               className={`depart-therapist-btn bg-red-600 hover:bg-red-500 text-white px-3 py-1 text-sm rounded ${therapist.status === 'Departed' ? 'hidden' : ''}`}

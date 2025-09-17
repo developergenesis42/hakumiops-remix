@@ -13,20 +13,8 @@ export default function EndOfDayModal({ isOpen, onClose, onConfirmEndOfDay }: En
   const handleConfirm = async () => {
     setIsProcessing(true);
     try {
-      // TODO: Implement actual end of day logic
-      // 1. Save today's final report to history
-      // 2. Reset dashboard for next day
-      // 3. Clear active sessions
-      // 4. Reset therapist statuses
-      // 5. Reset room statuses
-      // 6. Clear walkouts
-      // 7. Clear bookings
-      // 8. Reset financials
-      
-      // Simulate processing time
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      onConfirmEndOfDay();
+      // Call the actual end of day function
+      await onConfirmEndOfDay();
       onClose();
     } catch (error) {
       console.error('Error ending day:', error);

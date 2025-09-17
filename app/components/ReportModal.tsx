@@ -1,25 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Therapist, SessionWithDetails } from '../types';
-
-interface Walkout {
-  id: string;
-  reason: string;
-  count: number;
-  timestamp: Date;
-}
-
-interface ShopExpense {
-  id: string;
-  amount: number;
-  note: string;
-  timestamp: Date;
-}
-
-interface Financials {
-  totalRevenue: number;
-  shopRevenue: number;
-  therapistPayouts: number;
-}
+import { Therapist, SessionWithDetails, Walkout, ShopExpense, FinancialSummary } from '../types';
 
 interface ReportModalProps {
   isOpen: boolean;
@@ -28,7 +8,7 @@ interface ReportModalProps {
   completedSessions: SessionWithDetails[];
   walkouts: Walkout[];
   shopExpenses: ShopExpense[];
-  financials: Financials;
+  financials: FinancialSummary;
 }
 
 export default function ReportModal({
@@ -177,19 +157,19 @@ export default function ReportModal({
                 <div>
                   <p className="text-sm text-gray-400">Total Revenue</p>
                   <p className="text-2xl font-bold text-green-400">
-                    {formatCurrency(financials.totalRevenue)}
+                    {formatCurrency(financials.total_revenue)}
                   </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-400">Shop Revenue</p>
                   <p className="text-xl font-semibold text-blue-400">
-                    {formatCurrency(financials.shopRevenue)}
+                    {formatCurrency(financials.shop_revenue)}
                   </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-400">Gross Therapist Payouts</p>
                   <p className="text-xl font-semibold text-yellow-400">
-                    {formatCurrency(financials.therapistPayouts)}
+                    {formatCurrency(financials.therapist_payouts)}
                   </p>
                 </div>
               </div>

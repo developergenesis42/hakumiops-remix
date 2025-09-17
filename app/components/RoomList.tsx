@@ -52,9 +52,16 @@ export default function RoomList({ rooms, activeSessions = [], onRoomStatusChang
     const remaining = endTime.getTime() - new Date().getTime();
     if (remaining <= 0) return "Finished";
     
-    const minutes = Math.floor((remaining / 1000 / 60) % 60);
+    const totalMinutes = Math.floor(remaining / 1000 / 60);
+    const minutes = totalMinutes % 60;
+    const hours = Math.floor(totalMinutes / 60);
     const seconds = Math.floor((remaining / 1000) % 60);
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    } else {
+      return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
   };
 
   // Group rooms by type

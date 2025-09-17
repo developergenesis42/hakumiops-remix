@@ -2,7 +2,8 @@
 import { json } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
 import React, { useState, useCallback, useMemo } from "react";
-import { createClient } from "~/utils/supabase.server";
+// Realtime subscriptions removed - will be handled differently
+// Validation will be handled on the server side in API routes
 import RoomList from "~/components/RoomList";
 import TherapistGrid from "~/components/TherapistGrid";
 import AddTherapistModal from "~/components/AddTherapistModal";
@@ -15,124 +16,154 @@ import ReportModal from "~/components/ReportModal";
 import ModifySessionModal from "~/components/ModifySessionModal";
 import MonthlyReportModal from "~/components/MonthlyReportModal";
 import EndOfDayModal from "~/components/EndOfDayModal";
-import { Room, Therapist, SessionWithDetails, BookingWithDetails, RoomType, RoomStatus } from "~/types";
+// ClientOnly import removed
+import { Room, Therapist, SessionWithDetails, BookingWithDetails, ShopExpense, Walkout, FinancialSummary } from "~/types";
 
 export async function loader() {
   try {
-    const { supabase } = createClient();
+    console.log("Loader: Starting to load data...");
     
-    // Fetch data from Supabase tables
-    const { data: therapists, error: therapistsError } = await supabase
-      .from("therapists")
-      .select("id, name");
-    
-    const { data: rooms, error: roomsError } = await supabase
-      .from("rooms")
-      .select("id, name, type, status, created_at, updated_at");
-    
-    const { data: services, error: servicesError } = await supabase
-      .from("services")
-      .select("id, name, category, price");
+    // Import database functions only in the loader
+    const { 
+      getTherapists, 
+      getRooms, 
+      getServices, 
+      getSessionsWithDetails, 
+      getBookings, 
+      getWalkouts, 
+      getShopExpenses,
+      calculateFinancials
+    } = await import("~/utils/database.server");
+
+    console.log("Loader: Database functions imported successfully");
+
+    // Fetch all data using database service functions
+    const [therapistsResult, roomsResult, servicesResult, sessionsResult, bookingsResult, walkoutsResult, shopExpensesResult, financialsResult] = await Promise.all([
+      getTherapists(),
+      getRooms(),
+      getServices(),
+      getSessionsWithDetails(), // Use getSessionsWithDetails instead of getSessions
+      getBookings(),
+      getWalkouts(),
+      getShopExpenses(),
+      calculateFinancials()
+    ]);
+
+    console.log("Loader: Data fetched successfully");
+    console.log("Loader: Rooms count:", roomsResult.data?.length);
+    console.log("Loader: Therapists count:", therapistsResult.data?.length);
+
+    // Deduplicate therapists by name (prioritize those on duty)
+    const uniqueTherapists = therapistsResult.data ? 
+      therapistsResult.data.reduce((acc, therapist) => {
+        const existing = acc.find(t => t.name === therapist.name);
+        if (!existing) {
+          acc.push(therapist);
+        } else if (therapist.is_on_duty && !existing.is_on_duty) {
+          // Replace with the one that's on duty
+          const index = acc.findIndex(t => t.name === therapist.name);
+          acc[index] = therapist;
+        }
+        return acc;
+      }, [] as typeof therapistsResult.data) : [];
+
+    console.log("Loader: Unique therapists count:", uniqueTherapists.length);
 
     return json({ 
-      therapists: therapists || [],
-      rooms: rooms || [],
-      services: services || [],
+      therapists: uniqueTherapists,
+      rooms: roomsResult.data,
+      services: servicesResult.data,
+      sessions: sessionsResult.data,
+      bookings: bookingsResult.data,
+      walkouts: walkoutsResult.data,
+      shopExpenses: shopExpensesResult.data,
+      financials: financialsResult.data,
       errors: {
-        therapists: therapistsError?.message,
-        rooms: roomsError?.message,
-        services: servicesError?.message,
+        therapists: therapistsResult.error,
+        rooms: roomsResult.error,
+        services: servicesResult.error,
+        sessions: sessionsResult.error,
+        bookings: bookingsResult.error,
+        walkouts: walkoutsResult.error,
+        shopExpenses: shopExpensesResult.error,
+        financials: financialsResult.error,
       }
     });
   } catch (error) {
+    console.error("Loader: Error occurred:", error);
     return json({
       therapists: [],
       rooms: [],
       services: [],
+      sessions: [],
+      bookings: [],
+      walkouts: [],
+      shopExpenses: [],
+      financials: {
+        total_revenue: 0,
+        shop_revenue: 0,
+        therapist_payouts: 0,
+        net_profit: 0
+      },
       errors: {
         therapists: error instanceof Error ? error.message : 'Unknown error',
         rooms: null,
         services: null,
+        sessions: null,
+        bookings: null,
+        walkouts: null,
+        shopExpenses: null,
+        financials: null,
       }
     });
   }
 }
 
+// clientLoader removed - will use regular loader with proper server-side data loading
+
 interface LoaderData {
-  therapists: Array<{ id: string; name: string }>;
-  rooms: Array<{ 
-    id: string; 
-    name: string; 
-    type: string; 
-    status: string;
-    created_at: string;
-    updated_at: string;
-  }>;
-  services: Array<{ id: string; name: string; category: string; price: number }>;
+  therapists: Therapist[];
+  rooms: Room[];
+  services: Array<{ id: number; name: string; category: string; room_type: string; duration: number; price: number; payout: number; created_at: string }>;
+  sessions: SessionWithDetails[];
+  bookings: BookingWithDetails[];
+  walkouts: Walkout[];
+  shopExpenses: ShopExpense[];
+  financials: FinancialSummary;
   errors: {
     therapists: string | null;
     rooms: string | null;
     services: string | null;
+    sessions: string | null;
+    bookings: string | null;
+    walkouts: string | null;
+    shopExpenses: string | null;
+    financials: string | null;
   };
 }
 
 export default function Home() {
-  const { rooms: initialRooms = [] } = useLoaderData<LoaderData>();
+  const { 
+    rooms: initialRooms = [], 
+    therapists: initialTherapists = [], 
+    services: initialServices = [],
+    sessions: initialSessions = [],
+    bookings: initialBookings = [],
+    walkouts: initialWalkouts = [],
+    shopExpenses: initialShopExpenses = [],
+    financials: initialFinancials = {
+      total_revenue: 0,
+      shop_revenue: 0,
+      therapist_payouts: 0,
+      net_profit: 0
+    }
+  } = useLoaderData<LoaderData>();
   
   // State management for rooms
-  const [rooms, setRooms] = useState<Room[]>(initialRooms.map(room => ({
-    ...room,
-    type: room.type as RoomType,
-    status: room.status as RoomStatus
-  })));
+  const [rooms, setRooms] = useState<Room[]>(initialRooms);
   
   // State management for therapists
-  const [therapists, setTherapists] = useState<Therapist[]>([
-    {
-      id: '1',
-      name: 'Sarah Johnson',
-      is_on_duty: true,
-      status: 'Available',
-      check_in_time: '2024-01-15T09:00:00Z',
-      check_out_time: null,
-      active_room_id: null,
-      completed_room_ids: ['Room 1', 'Room 3'],
-      expenses: [
-        { id: 'exp-1', name: 'Condom 12', amount: 50 },
-        { id: 'exp-2', name: 'Lube', amount: 100 }
-      ],
-      created_at: '2024-01-15T08:00:00Z',
-      updated_at: '2024-01-15T09:00:00Z'
-    },
-    {
-      id: '2',
-      name: 'Emma Wilson',
-      is_on_duty: true,
-      status: 'Rostered',
-      check_in_time: null,
-      check_out_time: null,
-      active_room_id: null,
-      completed_room_ids: [],
-      expenses: [
-        { id: 'exp-3', name: 'Towel', amount: 30 }
-      ],
-      created_at: '2024-01-15T08:00:00Z',
-      updated_at: '2024-01-15T09:00:00Z'
-    },
-    {
-      id: '3',
-      name: 'Lisa Chen',
-      is_on_duty: true,
-      status: 'In Session',
-      check_in_time: '2024-01-15T08:30:00Z',
-      check_out_time: null,
-      active_room_id: 'Room 2',
-      completed_room_ids: ['Room 1'],
-      expenses: [],
-      created_at: '2024-01-15T08:00:00Z',
-      updated_at: '2024-01-15T09:00:00Z'
-    }
-  ]);
+  const [therapists, setTherapists] = useState<Therapist[]>(initialTherapists);
 
   const [isAddTherapistModalOpen, setIsAddTherapistModalOpen] = useState(false);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
@@ -148,101 +179,98 @@ export default function Home() {
   const [selectedSessionForModify, setSelectedSessionForModify] = useState<SessionWithDetails | null>(null);
   const [isMonthlyReportModalOpen, setIsMonthlyReportModalOpen] = useState(false);
   const [isEndOfDayModalOpen, setIsEndOfDayModalOpen] = useState(false);
-  const [bookings, setBookings] = useState<BookingWithDetails[]>([]);
-  const [completedSessions, setCompletedSessions] = useState<SessionWithDetails[]>([
-    {
-      id: 'completed-1',
-      service_id: 2,
-      therapist_ids: ['1'],
-      room_id: '1',
-      status: 'Completed',
-      duration: 60,
-      start_time: '2024-01-15T10:00:00Z',
-      end_time: '2024-01-15T11:00:00Z',
-      price: 3500,
-      payout: 1500,
-      created_at: '2024-01-15T10:00:00Z',
-      updated_at: '2024-01-15T11:00:00Z',
-      service: {
-        id: 2,
-        category: '1 Lady',
-        room_type: 'Shower',
-        name: '60 min Shower',
-        duration: 60,
-        price: 3500,
-        payout: 1500,
-        created_at: '2024-01-15T08:00:00Z'
-      },
-      therapists: [{
-        id: '1',
-        name: 'Ally',
-        is_on_duty: true,
-        status: 'Available',
-        check_in_time: '2024-01-15T09:00:00Z',
-        check_out_time: null,
-        active_room_id: null,
-        completed_room_ids: [],
-        expenses: [
-          { id: 'exp-1', name: 'Condom 12', amount: 50 },
-          { id: 'exp-2', name: 'Lube', amount: 100 }
-        ],
-        created_at: '2024-01-15T08:00:00Z',
-        updated_at: '2024-01-15T11:00:00Z'
-      }],
-      room: {
-        id: '1',
-        name: 'Room 1',
-        type: 'Shower',
-        status: 'Available',
-        created_at: '2024-01-15T08:00:00Z',
-        updated_at: '2024-01-15T11:00:00Z'
-      }
-    }
-  ]);
-  const [mockActiveSessions, setMockActiveSessions] = useState<SessionWithDetails[]>([]);
-  const [walkouts, setWalkouts] = useState<Array<{id: string; reason: string; count: number; timestamp: Date}>>([]);
+  const [bookings, setBookings] = useState<BookingWithDetails[]>(initialBookings);
+  
+  // Booking to session conversion state
+  const [selectedBookingForSession, setSelectedBookingForSession] = useState<BookingWithDetails | null>(null);
+  const [completedSessions, setCompletedSessions] = useState<SessionWithDetails[]>(initialSessions.filter(s => s.status === 'Completed'));
+  const [activeSessions, setActiveSessions] = useState<SessionWithDetails[]>(initialSessions.filter(s => s.status !== 'Completed'));
+  const [walkouts, setWalkouts] = useState<Walkout[]>(initialWalkouts);
   const [walkoutCount, setWalkoutCount] = useState<number>(1);
   const [walkoutReason, setWalkoutReason] = useState<string>('');
-  const [shopExpenses, setShopExpenses] = useState<Array<{id: string; amount: number; note: string; timestamp: Date}>>([]);
-  const [financials, setFinancials] = useState({
-    totalRevenue: 0,
-    shopRevenue: 0,
-    therapistPayouts: 0,
-    netProfit: 0
-  });
+  const [shopExpenses, setShopExpenses] = useState<ShopExpense[]>(initialShopExpenses);
+  const [financials, setFinancials] = useState<FinancialSummary>(initialFinancials);
   const [sessionTimers, setSessionTimers] = useState<Record<string, NodeJS.Timeout>>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Services data
-  const services = useMemo(() => [
-    { id: 1, category: '1 Lady', roomType: 'Shower', name: '40 min Shower', duration: 40, price: 3200, payout: 1300 },
-    { id: 2, category: '1 Lady', roomType: 'Shower', name: '60 min Shower', duration: 60, price: 3500, payout: 1500 },
-    { id: 3, category: '1 Lady', roomType: 'Shower', name: '90 min Shower', duration: 90, price: 4000, payout: 1800 },
-    { id: 4, category: '1 Lady', roomType: 'VIP Jacuzzi', name: '60 min VIP', duration: 60, price: 4000, payout: 2000 },
-    { id: 5, category: '1 Lady', roomType: 'VIP Jacuzzi', name: '90 min VIP', duration: 90, price: 5000, payout: 2300 },
-    { id: 6, category: '2 Ladies', roomType: 'Shower', name: '60 min 2L Shower', duration: 60, price: 6500, payout: 3400 },
-    { id: 7, category: '2 Ladies', roomType: 'Shower', name: '90 min 2L Shower', duration: 90, price: 7500, payout: 4000 },
-    { id: 8, category: '2 Ladies', roomType: 'VIP Jacuzzi', name: '60 min 2L VIP', duration: 60, price: 7500, payout: 4000 },
-    { id: 9, category: '2 Ladies', roomType: 'VIP Jacuzzi', name: '90 min 2L VIP', duration: 90, price: 8500, payout: 4800 },
-    { id: 10, category: 'Couple', roomType: 'Shower', name: '60 min Couple Shower', duration: 60, price: 7500, payout: 2500 },
-    { id: 11, category: 'Couple', roomType: 'Shower', name: '90 min Couple Shower', duration: 90, price: 8000, payout: 3000 },
-    { id: 12, category: 'Couple', roomType: 'VIP Jacuzzi', name: '60 min Couple VIP', duration: 60, price: 8500, payout: 3000 },
-    { id: 13, category: 'Couple', roomType: 'VIP Jacuzzi', name: '90 min Couple VIP', duration: 90, price: 9000, payout: 3500 }
-  ], []);
+  // Services data from database
+  const services = useMemo(() => initialServices, [initialServices]);
 
   // Handler functions
-  const handleAddTherapist = (newTherapist: Omit<Therapist, 'id' | 'created_at' | 'updated_at'>) => {
-    const therapistWithId: Therapist = {
-      ...newTherapist,
-      id: Date.now().toString(), // Simple ID generation for demo
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
+  const handleAddTherapist = async (therapistData: Omit<Therapist, 'id' | 'created_at' | 'updated_at'>) => {
+    console.log('Adding therapist to duty roster:', therapistData);
     
-    setTherapists(prev => {
-      const updated = [...prev, therapistWithId];
-      // Sort alphabetically by name
-      return updated.sort((a, b) => a.name.localeCompare(b.name));
-    });
+    setIsLoading(true);
+    setError(null);
+    
+    // Check if therapist is already on duty
+    const existingTherapist = therapists.find(t => t.name === therapistData.name);
+    if (existingTherapist) {
+      setError(`${therapistData.name} is already on duty`);
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      // First, get all therapists from database to find the one by name
+      const therapistsResponse = await fetch('/api/therapists?all=true');
+      const therapistsResult = await therapistsResponse.json();
+      
+      if (!therapistsResponse.ok) {
+        throw new Error(`Failed to fetch therapists: ${therapistsResult.error}`);
+      }
+
+      // Find the therapist by name (case-insensitive)
+      const dbTherapist = therapistsResult.data.find((t: Therapist) => 
+        t.name.toLowerCase() === therapistData.name.toLowerCase()
+      );
+
+      if (!dbTherapist) {
+        setError(`Therapist "${therapistData.name}" not found in database`);
+        return;
+      }
+
+      // Update therapist in database to set is_on_duty = true
+      const response = await fetch('/api/therapists?action=update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: dbTherapist.id,
+          updates: {
+            is_on_duty: true,
+            status: 'Rostered'
+          }
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('Failed to add therapist to duty roster:', result.error);
+        setError(`Failed to add therapist to duty roster: ${result.error}`);
+        return;
+      }
+
+      // Update local state with the therapist now on duty
+      const updatedTherapist = {
+        ...dbTherapist,
+        is_on_duty: true,
+        status: 'Rostered' as const
+      };
+
+      setTherapists(prev => {
+        const updated = [...prev, updatedTherapist];
+        return updated.sort((a, b) => a.name.localeCompare(b.name));
+      });
+
+      console.log('Therapist added to duty roster successfully');
+    } catch (error) {
+      console.error('Failed to add therapist to duty roster:', error);
+      setError('Failed to add therapist to duty roster. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleTherapistClick = (therapist: Therapist) => {
@@ -256,6 +284,47 @@ export default function Home() {
       setIsBookingModalOpen(true);
     }
   };
+
+  const handleBookingClick = useCallback((bookingId: string) => {
+    const booking = bookings.find(b => b.id === bookingId);
+    if (!booking) return;
+    
+    // Check if primary therapist is available
+    const primaryTherapist = therapists.find(t => t.id === booking.therapist_ids[0]);
+    if (!primaryTherapist || primaryTherapist.status !== 'Available') {
+      alert('Therapist is not available to start this booking.');
+      return;
+    }
+    
+    setSelectedBookingForSession(booking);
+    setIsSessionModalOpen(true);
+  }, [bookings, therapists]);
+
+  const handleCancelBooking = useCallback(async (bookingId: string) => {
+    if (!confirm('Are you sure you want to cancel this booking?')) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/bookings', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: bookingId })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to cancel booking');
+      }
+
+      // Remove booking from local state
+      setBookings(prev => prev.filter(b => b.id !== bookingId));
+      console.log('Booking cancelled successfully');
+    } catch (error) {
+      console.error('Failed to cancel booking:', error);
+      alert('Failed to cancel booking. Please try again.');
+    }
+  }, []);
 
   const handleAddExpense = (therapistId: string) => {
     const therapist = therapists.find(t => t.id === therapistId);
@@ -294,75 +363,221 @@ export default function Home() {
     note?: string;
   }) => {
     console.log('Creating booking:', bookingData);
-    // TODO: Implement booking creation logic
-    // This will create a new booking record and update the bookings state
+    
+    const service = services.find(s => s.id === bookingData.serviceId);
+    if (!service) {
+      setError('Service not found');
+      return;
+    }
+
+    const endTime = new Date(bookingData.startTime.getTime() + service.duration * 60000);
+    
+    const newBooking: BookingWithDetails = {
+      id: Date.now().toString(),
+      therapist_ids: bookingData.therapistIds,
+      service_id: bookingData.serviceId,
+      start_time: bookingData.startTime.toISOString(),
+      end_time: endTime.toISOString(),
+      status: 'Scheduled',
+      note: bookingData.note || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      service: {
+        id: service.id,
+        category: service.category as '1 Lady' | '2 Ladies' | 'Couple',
+        room_type: service.room_type as 'Shower' | 'VIP Jacuzzi',
+        name: service.name,
+        duration: service.duration,
+        price: service.price,
+        payout: service.payout,
+        created_at: service.created_at
+      },
+      therapists: bookingData.therapistIds.map(id => therapists.find(t => t.id === id)).filter(Boolean) as Therapist[]
+    };
+
+    setBookings(prev => {
+      const updated = [...prev, newBooking];
+      return updated.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+    });
   };
 
-  const handleConfirmExpense = (expenseData: {
+  const handleConfirmExpense = async (expenseData: {
     therapistId: string;
     itemId: string;
     amount: number;
     itemName: string;
   }) => {
-    const therapist = therapists.find(t => t.id === expenseData.therapistId);
-    if (!therapist) return;
+    setIsLoading(true);
+    setError(null);
 
-    if (expenseData.amount <= 0) {
-      alert("Expense amount must be greater than zero.");
-      return;
-    }
-
-    // Add expense to therapist
-    const newExpense = {
-      id: Date.now().toString(),
-      name: expenseData.itemName,
+    const expense = {
+      therapist_id: expenseData.therapistId,
+      item_name: expenseData.itemName,
       amount: expenseData.amount
     };
 
-    setTherapists(prev => prev.map(t => 
-      t.id === expenseData.therapistId 
-        ? { ...t, expenses: [...t.expenses, newExpense] }
-        : t
-    ));
+    // Validation will be handled on the server side
+
+    try {
+      const response = await fetch('/api/expenses?type=therapist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(expense)
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        setError(result.error);
+      } else if (result.data) {
+        // Update therapist expenses in local state
+        setTherapists(prev => prev.map(t => 
+          t.id === expenseData.therapistId 
+            ? { ...t, expenses: [...t.expenses, { id: result.data.id, name: result.data.item_name, amount: result.data.amount }] }
+            : t
+        ));
+
+        // Update financials (therapist expenses increase shop revenue and total revenue)
+        setFinancials(prev => ({
+          ...prev,
+          shop_revenue: prev.shop_revenue + expenseData.amount,
+          total_revenue: prev.total_revenue + expenseData.amount
+        }));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add expense');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleConfirmDeparture = (therapistId: string) => {
-    console.log('Confirming departure for therapist:', therapistId);
-    // TODO: Implement departure logic
-    // This will update therapist status to 'Departed' and set checkout time
+  const handleCheckIn = useCallback(async (therapistId: string) => {
+    console.log('Checking in therapist:', therapistId);
+    
+    const checkInTime = new Date().toISOString();
+    
+    // Update local state first
     setTherapists(prev => prev.map(t => 
       t.id === therapistId 
-        ? { ...t, status: 'Departed' as const, check_out_time: new Date().toISOString() }
+        ? { ...t, status: 'Available' as const, check_in_time: checkInTime, is_on_duty: true }
         : t
     ));
+
+    // Update database
+    try {
+      const response = await fetch('/api/therapists?action=update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: therapistId,
+          updates: {
+            status: 'Available',
+            check_in_time: checkInTime,
+            is_on_duty: true
+          }
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('Failed to update therapist in database:', result.error);
+        setError(`Failed to check in therapist: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to update therapist in database:', error);
+      setError('Failed to check in therapist. Please try again.');
+    }
+  }, [setError]);
+
+  const handleConfirmDeparture = async (therapistId: string) => {
+    console.log('Confirming departure for therapist:', therapistId);
+    
+    const checkOutTime = new Date().toISOString();
+    
+    // Update local state first
+    setTherapists(prev => prev.map(t => 
+      t.id === therapistId 
+        ? { ...t, status: 'Departed' as const, check_out_time: checkOutTime, is_on_duty: false }
+        : t
+    ));
+
+    // Update database
+    try {
+      const response = await fetch('/api/therapists?action=update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: therapistId,
+          updates: {
+            status: 'Departed',
+            check_out_time: checkOutTime,
+            is_on_duty: false
+          }
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        console.error('Failed to update therapist in database:', result.error);
+        setError(`Failed to check out therapist: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Failed to update therapist in database:', error);
+      setError('Failed to check out therapist. Please try again.');
+    }
   };
 
-  const handleConfirmShopExpense = (expenseData: {
+  const handleConfirmShopExpense = async (expenseData: {
     amount: number;
     note: string;
   }) => {
-    if (expenseData.amount <= 0) {
-      alert("Please enter a valid expense amount.");
-      return;
-    }
+    setIsLoading(true);
+    setError(null);
 
-    const newShopExpense = {
-      id: Date.now().toString(),
+    const expense = {
       amount: expenseData.amount,
-      note: expenseData.note,
-      timestamp: new Date()
+      note: expenseData.note || null
     };
 
-    setShopExpenses(prev => [...prev, newShopExpense]);
+    // Validation will be handled on the server side
+
+    try {
+      const response = await fetch('/api/expenses?type=shop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(expense)
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        setError(result.error);
+      } else if (result.data) {
+        setShopExpenses(prev => [result.data, ...prev]);
+
+        // Update financials (shop expenses decrease shop revenue and total revenue)
+        setFinancials(prev => ({
+          ...prev,
+          shop_revenue: prev.shop_revenue - expenseData.amount,
+          total_revenue: prev.total_revenue - expenseData.amount
+        }));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add shop expense');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleModifySession = (sessionId: string) => {
-    const session = mockActiveSessions.find(s => s.id === sessionId);
+  const handleModifySession = useCallback((sessionId: string) => {
+    const session = activeSessions.find(s => s.id === sessionId);
     if (session) {
       setSelectedSessionForModify(session);
       setIsModifySessionModalOpen(true);
     }
-  };
+  }, [activeSessions]);
 
   const handleRoomStatusChange = (roomId: string, status: 'Available' | 'Occupied') => {
     setRooms(prev => prev.map(room => 
@@ -372,214 +587,250 @@ export default function Home() {
     ));
   };
 
-  const handleEndOfDay = useCallback(() => {
-    // Clear all active sessions
-    setMockActiveSessions([]);
+  const handleEndOfDay = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
     
-    // Clear all bookings
-    setBookings([]);
-    
-    // Clear walkouts
-    setWalkouts([]);
-    
-    // Clear shop expenses
-    setShopExpenses([]);
-    
-    // Reset therapist statuses to 'Rostered' and clear session data
-    setTherapists(prev => prev.map(therapist => ({
-      ...therapist,
-      status: 'Rostered' as const,
-      active_room_id: null,
-      completed_room_ids: [],
-      expenses: [],
-      check_in_time: null,
-      check_out_time: null
-    })));
-    
-    // Reset all rooms to 'Available'
-    setRooms(prev => prev.map(room => ({
-      ...room,
-      status: 'Available' as const
-    })));
-    
-    // Reset financials
-    setFinancials({
-      totalRevenue: 0,
-      shopRevenue: 0,
-      therapistPayouts: 0,
-      netProfit: 0
-    });
-    
-    // Clear completed sessions
-    setCompletedSessions([]);
-    
-    // Clear all session timers
-    Object.values(sessionTimers).forEach(timer => clearInterval(timer));
-    setSessionTimers({});
-    
-    console.log('End of day completed - all data reset');
-  }, [sessionTimers]);
-
-  const handleConfirmModifySession = (modifyData: {
-    sessionId: string;
-    newServiceId: number;
-    newRoomId: string;
-  }) => {
-    console.log('Modifying session:', modifyData);
-    // TODO: Implement session modification logic
-    // This will update the session service/room and handle room status changes
-  };
-
-  const handleLogWalkout = () => {
-    if (!walkoutReason || walkoutCount <= 0) {
-      alert("Please provide a valid reason and count.");
-      return;
-    }
-
-    const newWalkout = {
-      id: Date.now().toString(),
-      reason: walkoutReason,
-      count: walkoutCount,
-      timestamp: new Date()
-    };
-
-    setWalkouts(prev => [newWalkout, ...prev]);
-    setWalkoutCount(1);
-    setWalkoutReason('');
-  };
-
-  const getWalkoutReasonClass = (reason: string) => {
-    const reasonClasses: Record<string, string> = {
-      'No Rooms': 'bg-red-500',
-      'No Ladies': 'bg-pink-500',
-      'Price Too High': 'bg-yellow-500',
-      'Client Too Picky': 'bg-orange-500',
-      'Chinese': 'bg-blue-500',
-      'Laowai': 'bg-purple-500'
-    };
-    return reasonClasses[reason] || 'bg-gray-500';
-  };
-
-  // Session Management Functions
-  const startSession = (serviceId: number, therapistIds: string[], roomId: string, bookingId?: string) => {
-    const service = services.find(s => s.id === serviceId);
-    const room = rooms.find(r => r.id === roomId);
-    const selectedTherapists = therapistIds.map(id => therapists.find(t => t.id === id)).filter(Boolean) as Therapist[];
-    
-    if (!service || !room || selectedTherapists.length === 0) {
-      console.error('Invalid selection or resource not available.');
-      return;
-    }
-
-    // Check if all therapists are available
-    const unavailableTherapists = selectedTherapists.filter(t => t.status !== 'Available');
-    if (unavailableTherapists.length > 0) {
-      alert(`${unavailableTherapists.map(t => t.name).join(', ')} is/are not available.`);
-      return;
-    }
-
-    // Check if room is available
-    if (room.status !== 'Available') {
-      alert(`${room.name} is not available.`);
-      return;
-    }
-
-    // Update therapist statuses
-    setTherapists(prev => prev.map(t => 
-      therapistIds.includes(t.id) ? { ...t, status: 'In Session' as const } : t
-    ));
-
-    // Update room status
-    setRooms(prev => prev.map(room => 
-      room.id === roomId 
-        ? { ...room, status: 'Occupied' as const }
-        : room
-    ));
-
-    // Create new session
-    const newSession: SessionWithDetails = {
-      id: Date.now().toString(),
-      service_id: serviceId,
-      therapist_ids: therapistIds,
-      room_id: roomId,
-      status: 'Ready',
-      duration: service.duration,
-      start_time: null,
-      end_time: null,
-      price: service.price,
-      payout: service.payout,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      service: {
-        id: service.id,
-        category: service.category as '1 Lady' | '2 Ladies' | 'Couple',
-        room_type: service.roomType as 'Shower' | 'VIP Jacuzzi',
-        name: service.name,
-        duration: service.duration,
-        price: service.price,
-        payout: service.payout,
-        created_at: new Date().toISOString()
-      },
-      therapists: selectedTherapists,
-      room: {
-        id: room.id,
-        name: room.name,
-        type: room.type as 'Shower' | 'VIP Jacuzzi' | 'Large Shower',
-        status: 'Occupied' as const,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+    try {
+      console.log('Starting end of day process...');
+      
+      // PHASE 1: ARCHIVE TODAY'S DATA
+      console.log('Phase 1: Archiving today\'s data...');
+      
+      // Create daily report with today's summary
+      const today = new Date().toISOString().split('T')[0];
+      const dailyReport = {
+        report_date: today,
+        total_revenue: financials.total_revenue,
+        shop_revenue: financials.shop_revenue,
+        therapist_payouts: financials.therapist_payouts,
+        session_count: completedSessions.length,
+        walkout_count: walkouts.reduce((sum, w) => sum + w.count, 0),
+        report_data: {
+          completed_sessions: completedSessions,
+          walkouts: walkouts,
+          shop_expenses: shopExpenses,
+          therapist_summaries: therapists.map(t => ({
+            id: t.id,
+            name: t.name,
+            status: t.status,
+            check_in_time: t.check_in_time,
+            check_out_time: t.check_out_time,
+            completed_room_ids: t.completed_room_ids,
+            total_expenses: t.expenses.reduce((sum, e) => sum + e.amount, 0),
+            session_count: completedSessions.filter(s => s.therapist_ids.includes(t.id)).length
+          }))
+        }
+      };
+      
+      // Save daily report to database
+      const reportResponse = await fetch('/api/daily-reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dailyReport)
+      });
+      
+      if (!reportResponse.ok) {
+        const error = await reportResponse.json();
+        throw new Error(`Failed to save daily report: ${error.error}`);
       }
-    };
-
-    setMockActiveSessions(prev => [...prev, newSession]);
-
-    // Remove booking if it exists
-    if (bookingId) {
-      setBookings(prev => prev.filter(b => b.id !== bookingId));
+      
+      console.log('Daily report saved successfully');
+      
+      // PHASE 2: RESET FOR NEXT DAY
+      console.log('Phase 2: Resetting for next day...');
+      
+      // Clear all active sessions (only in-progress sessions)
+      setActiveSessions([]);
+      
+      // Clear today's bookings (keep future bookings)
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(0, 0, 0, 0);
+      
+      setBookings(prev => prev.filter(booking => 
+        new Date(booking.start_time) >= tomorrow
+      ));
+      
+      // Clear today's walkouts (data is archived in daily report)
+      setWalkouts([]);
+      
+      // Clear today's shop expenses (data is archived in daily report)
+      setShopExpenses([]);
+      
+      // Reset therapist statuses to 'Rostered' but keep historical data
+      const resetTherapists = therapists.map(therapist => ({
+        ...therapist,
+        status: 'Rostered' as const,
+        is_on_duty: false,
+        active_room_id: null,
+        completed_room_ids: [], // Reset for new day
+        check_in_time: null,
+        check_out_time: null
+        // Keep expenses array - they're archived in daily report
+      }));
+      
+      setTherapists(resetTherapists);
+      
+      // Update therapists in database
+      for (const therapist of resetTherapists) {
+        try {
+          await fetch('/api/therapists?action=update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: therapist.id,
+              updates: {
+                status: 'Rostered',
+                is_on_duty: false,
+                active_room_id: null,
+                completed_room_ids: [],
+                check_in_time: null,
+                check_out_time: null
+              }
+            })
+          });
+        } catch (error) {
+          console.error('Failed to reset therapist in database:', error);
+        }
+      }
+      
+      // Reset all rooms to 'Available'
+      setRooms(prev => prev.map(room => ({
+        ...room,
+        status: 'Available' as const
+      })));
+      
+      // Reset financials for new day
+      setFinancials({
+        total_revenue: 0,
+        shop_revenue: 0,
+        therapist_payouts: 0,
+        net_profit: 0
+      });
+      
+      // Clear completed sessions (data is archived in daily report)
+      setCompletedSessions([]);
+      
+      // Clear all session timers
+      Object.values(sessionTimers).forEach(timer => clearInterval(timer));
+      setSessionTimers({});
+      
+      console.log('End of day completed successfully');
+      setError(null);
+      
+    } catch (err) {
+      console.error('Error during end of day process:', err);
+      setError(err instanceof Error ? err.message : 'Failed to complete end of day process');
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, [sessionTimers, therapists, financials, completedSessions, walkouts, shopExpenses, setError, setIsLoading]);
 
-  const completeSession = useCallback((sessionId: string) => {
-    const sessionIndex = mockActiveSessions.findIndex(s => s.id === sessionId);
+  const completeSession = useCallback(async (sessionId: string) => {
+    const sessionIndex = activeSessions.findIndex(s => s.id === sessionId);
     if (sessionIndex === -1) return;
 
-    const session = mockActiveSessions[sessionIndex];
-    const service = services.find(s => s.id === session.service_id);
+    const session = activeSessions[sessionIndex];
     
-    if (!service) return;
+    setIsLoading(true);
+    setError(null);
 
-    // Clear timer
-    if (sessionTimers[sessionId]) {
-      clearInterval(sessionTimers[sessionId]);
-      setSessionTimers(prev => {
-        const newTimers = { ...prev };
-        delete newTimers[sessionId];
-        return newTimers;
+    try {
+      // Update session status to completed
+      const response = await fetch('/api/sessions?action=update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          updates: {
+            status: 'Completed',
+            end_time: new Date().toISOString()
+          }
+        })
       });
+      
+      const result = await response.json();
+
+      if (!response.ok) {
+        setError(result.error);
+        return;
+      }
+
+      // Clear timer
+      if (sessionTimers[sessionId]) {
+        clearInterval(sessionTimers[sessionId]);
+        setSessionTimers(prev => {
+          const newTimers = { ...prev };
+          delete newTimers[sessionId];
+          return newTimers;
+        });
+      }
+
+      // Update therapist statuses and add completed room ID
+      const updatedTherapists = therapists.map(t => 
+        session.therapist_ids.includes(t.id) 
+          ? { 
+              ...t, 
+              status: 'Available' as const,
+              completed_room_ids: [...(t.completed_room_ids || []), session.room_id]
+            }
+          : t
+      );
+      
+      setTherapists(updatedTherapists);
+
+      // Update therapists in database
+      for (const therapist of updatedTherapists) {
+        if (session.therapist_ids.includes(therapist.id)) {
+          try {
+            await fetch('/api/therapists?action=update', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: therapist.id,
+                updates: {
+                  status: therapist.status,
+                  completed_room_ids: therapist.completed_room_ids
+                }
+              })
+            });
+          } catch (error) {
+            console.error('Failed to update therapist in database:', error);
+          }
+        }
+      }
+
+      // Update room status
+      setRooms(prev => prev.map(room => 
+        room.id === session.room_id 
+          ? { ...room, status: 'Available' as const }
+          : room
+      ));
+
+      // Add to completed sessions
+      setCompletedSessions(prev => [...prev, { ...session, status: 'Completed' }]);
+
+      // Remove from active sessions
+      setActiveSessions(prev => prev.filter(s => s.id !== sessionId));
+
+      // Recalculate financials
+      try {
+        const financialResponse = await fetch('/api/financials');
+        const financialResult = await financialResponse.json();
+        
+        if (financialResponse.ok && financialResult.data) {
+          setFinancials(financialResult.data);
+        }
+      } catch (error) {
+        console.error('Failed to update financials:', error);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to complete session');
+    } finally {
+      setIsLoading(false);
     }
-
-    // Financials will be updated automatically via useEffect
-
-    // Update therapist statuses
-    setTherapists(prev => prev.map(t => 
-      session.therapist_ids.includes(t.id) 
-        ? { ...t, status: 'Available' as const }
-        : t
-    ));
-
-    // Update room status
-    setRooms(prev => prev.map(room => 
-      room.id === session.room_id 
-        ? { ...room, status: 'Available' as const }
-        : room
-    ));
-
-    // Add to completed sessions
-    setCompletedSessions(prev => [...prev, session]);
-
-    // Remove from active sessions
-    setMockActiveSessions(prev => prev.filter(s => s.id !== sessionId));
-  }, [mockActiveSessions, services, sessionTimers, setFinancials, setTherapists, setCompletedSessions, setMockActiveSessions, setSessionTimers]);
+  }, [activeSessions, sessionTimers, setFinancials, setTherapists, setCompletedSessions, setActiveSessions, setSessionTimers, therapists]);
 
   const startTimerForSession = useCallback((sessionId: string, endTime: Date) => {
     const updateTimer = () => {
@@ -600,23 +851,320 @@ export default function Home() {
     setSessionTimers(prev => ({ ...prev, [sessionId]: interval }));
   }, [completeSession]);
 
-  const beginSessionTimer = useCallback((sessionId: string) => {
-    const session = mockActiveSessions.find(s => s.id === sessionId);
+  const handleConfirmModifySession = useCallback(async (modifyData: {
+    sessionId: string;
+    newServiceId: number;
+    newRoomId: string;
+  }) => {
+    console.log('Modifying session:', modifyData);
+    
+    const session = activeSessions.find(s => s.id === modifyData.sessionId);
+    if (!session) {
+      setError('Session not found');
+      return;
+    }
+
+    const originalService = services.find(s => s.id === session.service_id);
+    const newService = services.find(s => s.id === modifyData.newServiceId);
+    const originalRoom = rooms.find(r => r.id === session.room_id);
+    const newRoom = rooms.find(r => r.id === modifyData.newRoomId);
+
+    if (!originalService || !newService || !originalRoom || !newRoom) {
+      setError('Invalid service or room selection');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Update session in database
+      const response = await fetch('/api/sessions?action=update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: modifyData.sessionId,
+          updates: {
+            service_id: modifyData.newServiceId,
+            room_id: modifyData.newRoomId,
+            duration: newService.duration,
+            price: newService.price,
+            payout: newService.payout
+          }
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        setError(result.error);
+        return;
+      }
+
+      // Update local state
+      setActiveSessions(prev => prev.map(s => {
+        if (s.id === modifyData.sessionId) {
+          const updatedSession: SessionWithDetails = {
+            ...s,
+            service_id: modifyData.newServiceId,
+            room_id: modifyData.newRoomId,
+            duration: newService.duration,
+            price: newService.price,
+            payout: newService.payout,
+            service: {
+              ...newService,
+              category: newService.category as '1 Lady' | '2 Ladies' | 'Couple',
+              room_type: newService.room_type as 'Shower' | 'VIP Jacuzzi'
+            },
+            room: {
+              ...newRoom,
+              status: 'Occupied' as const
+            }
+          };
+
+          // If session is in progress, recalculate timer
+          if (s.status === 'In Progress' && s.start_time) {
+            const durationDifferenceMs = (newService.duration - originalService.duration) * 60 * 1000;
+            const newEndTime = new Date(new Date(s.end_time || '').getTime() + durationDifferenceMs);
+            updatedSession.end_time = newEndTime.toISOString();
+
+            // Clear existing timer and start new one
+            if (sessionTimers[s.id]) {
+              clearInterval(sessionTimers[s.id]);
+              setSessionTimers(prev => {
+                const newTimers = { ...prev };
+                delete newTimers[s.id];
+                return newTimers;
+              });
+            }
+
+            // Start new timer with updated end time
+            startTimerForSession(s.id, newEndTime);
+          }
+
+          return updatedSession;
+        }
+        return s;
+      }));
+
+      // Update room statuses
+      if (originalRoom.id !== newRoom.id) {
+        setRooms(prev => prev.map(room => {
+          if (room.id === originalRoom.id) {
+            return { ...room, status: 'Available' as const };
+          }
+          if (room.id === newRoom.id) {
+            return { ...room, status: 'Occupied' as const };
+          }
+          return room;
+        }));
+      }
+
+      console.log('Session modified successfully');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to modify session');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeSessions, services, rooms, sessionTimers, startTimerForSession, setActiveSessions, setRooms, setSessionTimers]);
+
+  const handleLogWalkout = async () => {
+    if (!walkoutReason || walkoutCount <= 0) {
+      setError("Please provide a valid reason and count.");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    const walkout = {
+      reason: walkoutReason as 'No Rooms' | 'No Ladies' | 'Price Too High' | 'Client Too Picky' | 'Chinese' | 'Laowai',
+      count: walkoutCount
+    };
+
+    // Validation will be handled on the server side
+
+    try {
+      const response = await fetch('/api/walkouts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(walkout)
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        setError(result.error);
+      } else if (result.data) {
+        setWalkouts(prev => [result.data, ...prev]);
+        setWalkoutCount(1);
+        setWalkoutReason('');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to log walkout');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const getWalkoutReasonClass = (reason: string) => {
+    const reasonClasses: Record<string, string> = {
+      'No Rooms': 'bg-red-500',
+      'No Ladies': 'bg-pink-500',
+      'Price Too High': 'bg-yellow-500',
+      'Client Too Picky': 'bg-orange-500',
+      'Chinese': 'bg-blue-500',
+      'Laowai': 'bg-purple-500'
+    };
+    return reasonClasses[reason] || 'bg-gray-500';
+  };
+
+  // Session Management Functions
+  const startSession = async (serviceId: number, therapistIds: string[], roomId: string, bookingId?: string) => {
+    setIsLoading(true);
+    setError(null);
+
+    const service = services.find(s => s.id === serviceId);
+    const room = rooms.find(r => r.id === roomId);
+    const selectedTherapists = therapistIds.map(id => therapists.find(t => t.id === id)).filter(Boolean) as Therapist[];
+    
+    if (!service || !room || selectedTherapists.length === 0) {
+      setError('Invalid selection or resource not available.');
+      setIsLoading(false);
+      return;
+    }
+
+    // Check if all therapists are available
+    const unavailableTherapists = selectedTherapists.filter(t => t.status !== 'Available');
+    if (unavailableTherapists.length > 0) {
+      setError(`${unavailableTherapists.map(t => t.name).join(', ')} is/are not available.`);
+      setIsLoading(false);
+      return;
+    }
+
+    // Check if room is available
+    if (room.status !== 'Available') {
+      setError(`${room.name} is not available.`);
+      setIsLoading(false);
+      return;
+    }
+
+    const sessionData = {
+      service_id: serviceId,
+      therapist_ids: therapistIds,
+      room_id: roomId,
+      status: 'Ready' as const,
+      duration: service.duration,
+      start_time: null,
+      end_time: null,
+      price: service.price,
+      payout: service.payout
+    };
+
+    // Validation will be handled on the server side
+
+    try {
+      const response = await fetch('/api/sessions?action=create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sessionData)
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        setError(result.error);
+      } else if (result.data) {
+        const data = result.data;
+        // Update therapist statuses
+        setTherapists(prev => prev.map(t => 
+          therapistIds.includes(t.id) ? { ...t, status: 'In Session' as const } : t
+        ));
+
+        // Update room status
+        setRooms(prev => prev.map(room => 
+          room.id === roomId 
+            ? { ...room, status: 'Occupied' as const }
+            : room
+        ));
+
+        // Add to active sessions
+        const newSession: SessionWithDetails = {
+          ...data,
+          service: {
+            id: service.id,
+            category: service.category as '1 Lady' | '2 Ladies' | 'Couple',
+            room_type: service.room_type as 'Shower' | 'VIP Jacuzzi',
+            name: service.name,
+            duration: service.duration,
+            price: service.price,
+            payout: service.payout,
+            created_at: service.created_at
+          },
+          therapists: selectedTherapists,
+          room: { ...room, status: 'Occupied' as const }
+        };
+        setActiveSessions(prev => [...prev, newSession]);
+
+        // Remove booking if it exists
+        if (bookingId) {
+          setBookings(prev => prev.filter(b => b.id !== bookingId));
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start session');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const beginSessionTimer = useCallback(async (sessionId: string) => {
+    const session = activeSessions.find(s => s.id === sessionId);
     if (!session || session.status !== 'Ready') return;
 
     const startTime = new Date();
     const endTime = new Date(startTime.getTime() + session.duration * 60 * 1000);
 
-    // Update session status and times
-    setMockActiveSessions(prev => prev.map(s => 
-      s.id === sessionId 
-        ? { ...s, status: 'In Progress', start_time: startTime.toISOString(), end_time: endTime.toISOString() }
-        : s
-    ));
+    setIsLoading(true);
+    setError(null);
 
-    // Start timer
-    startTimerForSession(sessionId, endTime);
-  }, [mockActiveSessions, startTimerForSession]);
+    try {
+      // Update session status and times in database
+      const response = await fetch('/api/sessions?action=update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          updates: {
+            status: 'In Progress',
+            start_time: startTime.toISOString(),
+            end_time: endTime.toISOString()
+          }
+        })
+      });
+      
+      const result = await response.json();
+
+      if (!response.ok) {
+        setError(result.error);
+        return;
+      }
+
+      // Update local state
+      setActiveSessions(prev => prev.map(s => 
+        s.id === sessionId 
+          ? { ...s, status: 'In Progress', start_time: startTime.toISOString(), end_time: endTime.toISOString() }
+          : s
+      ));
+
+      // Start timer
+      startTimerForSession(sessionId, endTime);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start session timer');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeSessions, startTimerForSession]);
 
   const getSessionTimeRemaining = (session: SessionWithDetails) => {
     if (!session.end_time) return null;
@@ -625,42 +1173,47 @@ export default function Home() {
     const remaining = endTime.getTime() - new Date().getTime();
     if (remaining <= 0) return "Finished";
     
-    const minutes = Math.floor((remaining / 1000 / 60) % 60);
+    const totalMinutes = Math.floor(remaining / 1000 / 60);
+    const minutes = totalMinutes % 60;
+    const hours = Math.floor(totalMinutes / 60);
     const seconds = Math.floor((remaining / 1000) % 60);
-    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    } else {
+      return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
   };
-
-  // Financial calculations
-  const calculateFinancials = useCallback(() => {
-    // Calculate from completed sessions
-    const sessionRevenue = completedSessions.reduce((sum, session) => sum + session.price, 0);
-    const sessionPayouts = completedSessions.reduce((sum, session) => sum + session.payout, 0);
-    const sessionShopRevenue = sessionRevenue - sessionPayouts;
-
-    // Calculate from therapist expenses
-    const therapistExpenses = therapists.reduce((sum, therapist) => 
-      sum + therapist.expenses.reduce((expSum, expense) => expSum + expense.amount, 0), 0
-    );
-
-    // Calculate from shop expenses
-    const shopExpensesTotal = shopExpenses.reduce((sum, expense) => sum + expense.amount, 0);
-
-    // Calculate total shop revenue (session shop revenue + therapist expenses - shop expenses)
-    const totalShopRevenue = sessionShopRevenue + therapistExpenses - shopExpensesTotal;
-
-    return {
-      totalRevenue: sessionRevenue + therapistExpenses,
-      shopRevenue: totalShopRevenue,
-      therapistPayouts: sessionPayouts,
-      netProfit: totalShopRevenue
-    };
-  }, [completedSessions, therapists, shopExpenses]);
 
   // Update financials when dependencies change
   React.useEffect(() => {
-    const newFinancials = calculateFinancials();
-    setFinancials(newFinancials);
-  }, [calculateFinancials]);
+    const updateFinancials = async () => {
+      try {
+        const response = await fetch('/api/financials');
+        const result = await response.json();
+        
+        if (response.ok && result.data) {
+          setFinancials(result.data);
+        }
+      } catch (error) {
+        console.error('Failed to update financials:', error);
+      }
+    };
+    updateFinancials();
+  }, [completedSessions, shopExpenses]);
+
+  // Real-time subscriptions removed for now - will implement with client-side Supabase client later
+  // For now, the app will work with manual refreshes and API calls
+
+  // Set up global booking click handler
+  React.useEffect(() => {
+    (window as unknown as { bookingClickHandler?: (id: string) => void }).bookingClickHandler = handleBookingClick;
+    (window as unknown as { cancelBookingHandler?: (id: string) => void }).cancelBookingHandler = handleCancelBooking;
+    return () => {
+      delete (window as unknown as { bookingClickHandler?: (id: string) => void }).bookingClickHandler;
+      delete (window as unknown as { cancelBookingHandler?: (id: string) => void }).cancelBookingHandler;
+    };
+  }, [handleBookingClick, handleCancelBooking]);
 
   // Event listeners for session management buttons
   React.useEffect(() => {
@@ -680,11 +1233,55 @@ export default function Home() {
           completeSession(sessionId);
         }
       }
+      
+      if (target.matches('.modify-session-btn')) {
+        const sessionId = target.getAttribute('data-session-id');
+        if (sessionId) {
+          handleModifySession(sessionId);
+        }
+      }
+      
+      if (target.matches('.check-in-btn')) {
+        const therapistId = target.getAttribute('data-therapist-id');
+        if (therapistId) {
+          handleCheckIn(therapistId);
+        }
+      }
+      
+      if (target.matches('.start-session-for-therapist-btn')) {
+        const therapistId = target.getAttribute('data-therapist-id');
+        if (therapistId) {
+          const therapist = therapists.find(t => t.id === therapistId);
+          if (therapist) {
+            setSelectedTherapistForBooking(therapist);
+            setIsSessionModalOpen(true);
+          }
+        }
+      }
+      
+      if (target.matches('.booking-item')) {
+        const bookingId = target.getAttribute('data-booking-id');
+        if (bookingId) {
+          const booking = bookings.find(b => b.id === bookingId);
+          if (booking) {
+            // Check if therapist is available
+            const therapist = therapists.find(t => t.id === booking.therapist_ids[0]);
+            if (therapist && therapist.status === 'Available') {
+              // Pre-populate session modal with booking data
+              setSelectedTherapistForBooking(therapist);
+              setIsSessionModalOpen(true);
+              // TODO: Pre-populate session modal with booking service and therapist
+            } else {
+              setError('Therapist is not available to start this booking.');
+            }
+          }
+        }
+      }
     };
 
     document.addEventListener('click', handleClick);
     return () => document.removeEventListener('click', handleClick);
-  }, [beginSessionTimer, completeSession]);
+  }, [beginSessionTimer, completeSession, handleCheckIn, handleModifySession, therapists, bookings, setSelectedTherapistForBooking, setIsSessionModalOpen]);
 
 
 
@@ -694,26 +1291,84 @@ export default function Home() {
       <header className="bg-gray-900/80 backdrop-blur-sm p-4 shadow-lg sticky top-0 z-20 border-b border-gray-700 flex-shrink-0">
         <h1 className="text-2xl font-bold text-center text-white tracking-wider">HAKUMI NURU MASSAGE</h1>
         <p className="text-center text-sm text-gray-400">Operations Command Center</p>
+        
+        {/* Error Display */}
+        {error && (
+          <div className="mt-4 bg-red-900/50 border border-red-500 text-red-200 px-4 py-2 rounded-lg text-center">
+            {error}
+          </div>
+        )}
+        
+        {/* Loading Indicator */}
+        {isLoading && (
+          <div className="mt-4 bg-blue-900/50 border border-blue-500 text-blue-200 px-4 py-2 rounded-lg text-center">
+            Processing...
+          </div>
+        )}
+
+        {/* Temporary Reset Button - Development Only */}
+        {process.env.NODE_ENV !== 'production' && (
+          <div className="mt-4 flex justify-center">
+            <button
+              onClick={async () => {
+                if (confirm('⚠️ This will clear ALL test data (bookings, sessions, expenses, etc.) but preserve therapist roster, services, and rooms. Continue?')) {
+                  try {
+                    setIsLoading(true);
+                    const response = await fetch('/api/reset-data', {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                      },
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                      alert('✅ Data reset completed! Page will reload...');
+                      window.location.reload();
+                    } else {
+                      alert(`❌ Reset failed: ${result.error}`);
+                    }
+                  } catch (error) {
+                    alert(`❌ Reset failed: ${error}`);
+                  } finally {
+                    setIsLoading(false);
+                  }
+                }
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 border border-red-500"
+              disabled={isLoading}
+            >
+              🧹 Reset Test Data
+            </button>
+          </div>
+        )}
       </header>
 
       {/* Main Content Area */}
       <main className="flex flex-1 overflow-hidden">
         {/* Main Area: Therapists */}
         <div className="flex-grow p-4 lg:p-6 overflow-y-auto">
-        <TherapistGrid 
-          therapists={therapists}
-          activeSessions={mockActiveSessions}
-          bookings={bookings}
-          onTherapistClick={handleTherapistClick}
-          onBookSession={handleBookSession}
-          onAddExpense={handleAddExpense}
-          onDepartTherapist={handleDepartTherapist}
-          onModifySession={handleModifySession}
-          onBeginSessionTimer={beginSessionTimer}
-          onCompleteSession={completeSession}
-          getSessionTimeRemaining={getSessionTimeRemaining}
-          onAddTherapist={() => setIsAddTherapistModalOpen(true)}
-        />
+          <TherapistGrid
+            therapists={therapists}
+            activeSessions={activeSessions}
+            bookings={bookings}
+            rooms={rooms}
+            onTherapistClick={handleTherapistClick}
+            onBookSession={handleBookSession}
+            onAddExpense={handleAddExpense}
+            onDepartTherapist={handleDepartTherapist}
+            onModifySession={handleModifySession}
+            onBeginSessionTimer={beginSessionTimer}
+            onCompleteSession={completeSession}
+            onBookingClick={handleBookingClick}
+            onCancelBooking={handleCancelBooking}
+            getSessionTimeRemaining={getSessionTimeRemaining}
+            onAddTherapist={() => {
+              console.log('Setting modal open to true');
+              setIsAddTherapistModalOpen(true);
+            }}
+          />
         </div>
 
         {/* Sidebar: Rooms & Walkouts */}
@@ -723,7 +1378,7 @@ export default function Home() {
             <h2 className="text-xl font-bold text-white border-b border-gray-700 pb-2 mb-4">Room Status</h2>
             <RoomList 
               rooms={rooms as Room[]} 
-              activeSessions={mockActiveSessions} 
+              activeSessions={activeSessions} 
               onRoomStatusChange={handleRoomStatusChange}
             />
           </div>
@@ -780,10 +1435,11 @@ export default function Home() {
                           {walkout.count} {walkout.count > 1 ? 'people' : 'person'}
                         </span>
                         <span className="text-gray-400 text-xs">
-                          {' '}at {new Date(walkout.timestamp).toLocaleTimeString('en-US', { 
+                          {' '}at {new Date(walkout.created_at).toLocaleTimeString('en-US', { 
                             hour: '2-digit', 
                             minute: '2-digit',
-                            hour12: false 
+                            hour12: false,
+                            timeZone: 'UTC'
                           })}
                         </span>
                       </div>
@@ -807,36 +1463,40 @@ export default function Home() {
             <div className="bg-gray-800 p-3 rounded-lg text-center">
               <p className="text-sm text-gray-400">Total Revenue</p>
               <p className="text-xl font-bold text-green-400">
-                ฿{financials.totalRevenue.toLocaleString('en-US', { 
+                ฿{financials.total_revenue.toLocaleString('en-US', { 
                   minimumFractionDigits: 2, 
-                  maximumFractionDigits: 2 
+                  maximumFractionDigits: 2,
+                  useGrouping: true
                 })}
               </p>
             </div>
             <div className="bg-gray-800 p-3 rounded-lg text-center">
               <p className="text-sm text-gray-400">Shop Revenue</p>
               <p className="text-lg font-semibold text-blue-400">
-                ฿{financials.shopRevenue.toLocaleString('en-US', { 
+                ฿{financials.shop_revenue.toLocaleString('en-US', { 
                   minimumFractionDigits: 2, 
-                  maximumFractionDigits: 2 
+                  maximumFractionDigits: 2,
+                  useGrouping: true
                 })}
               </p>
             </div>
             <div className="bg-gray-800 p-3 rounded-lg text-center">
               <p className="text-sm text-gray-400">Gross Payouts</p>
               <p className="text-lg font-semibold text-yellow-400">
-                ฿{financials.therapistPayouts.toLocaleString('en-US', { 
+                ฿{financials.therapist_payouts.toLocaleString('en-US', { 
                   minimumFractionDigits: 2, 
-                  maximumFractionDigits: 2 
+                  maximumFractionDigits: 2,
+                  useGrouping: true
                 })}
               </p>
             </div>
             <div className="bg-gray-800 p-3 rounded-lg text-center">
               <p className="text-sm text-gray-400">Net Profit</p>
               <p className="text-lg font-semibold text-purple-400">
-                ฿{financials.netProfit.toLocaleString('en-US', { 
+                ฿{financials.net_profit.toLocaleString('en-US', { 
                   minimumFractionDigits: 2, 
-                  maximumFractionDigits: 2 
+                  maximumFractionDigits: 2,
+                  useGrouping: true
                 })}
               </p>
             </div>
@@ -890,10 +1550,17 @@ export default function Home() {
       {/* Session Modal */}
       <SessionModal
         isOpen={isSessionModalOpen}
-        onClose={() => setIsSessionModalOpen(false)}
+        onClose={() => {
+          setIsSessionModalOpen(false);
+          setSelectedBookingForSession(null);
+        }}
         onConfirmSession={handleConfirmSession}
         therapists={therapists}
         rooms={rooms as Room[]}
+        preselectedTherapistId={selectedBookingForSession?.therapist_ids[0]}
+        bookingId={selectedBookingForSession?.id}
+        bookingNote={selectedBookingForSession?.note || undefined}
+        bookingData={selectedBookingForSession || undefined}
       />
 
       {/* Booking Modal */}
@@ -905,6 +1572,7 @@ export default function Home() {
         }}
         onConfirmBooking={handleConfirmBooking}
         therapist={selectedTherapistForBooking}
+        allTherapists={therapists}
       />
 
       {/* Expense Modal */}

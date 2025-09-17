@@ -28,15 +28,18 @@ interface BookingModalProps {
     note?: string;
   }) => void;
   therapist: Therapist | null;
+  allTherapists: Therapist[];
 }
 
 export default function BookingModal({
   isOpen,
   onClose,
   onConfirmBooking,
-  therapist
+  therapist,
+  allTherapists
 }: BookingModalProps) {
   const [selectedServiceId, setSelectedServiceId] = useState<number | ''>('');
+  const [selectedTherapist2Id, setSelectedTherapist2Id] = useState<string>('');
   const [startTime, setStartTime] = useState<string>('');
   const [note, setNote] = useState<string>('');
 
@@ -44,13 +47,24 @@ export default function BookingModal({
   useEffect(() => {
     if (isOpen) {
       setSelectedServiceId('');
+      setSelectedTherapist2Id('');
       setStartTime('');
       setNote('');
     }
   }, [isOpen]);
 
-  // Get services based on therapist status (simplified to 1 Lady for now)
-  const availableServices = SERVICES.filter(s => s.category === '1 Lady');
+  // Get all available services
+  const availableServices = SERVICES;
+  
+  // Get selected service to determine if second therapist is needed
+  const selectedService = selectedServiceId ? SERVICES.find(s => s.id === selectedServiceId) : null;
+  const needsSecondTherapist = selectedService?.category === '2 Ladies';
+  
+  // Get available therapists for second selection (excluding the primary therapist)
+  const availableTherapists = allTherapists.filter(t => 
+    t.id !== therapist?.id && 
+    (t.status === 'Available' || t.status === 'Rostered')
+  );
 
   // Format time for display
   const formatTime = (date: Date) => {
@@ -87,7 +101,15 @@ export default function BookingModal({
 
   // Validation
   const isFormValid = () => {
-    return selectedServiceId && startTime;
+    if (!selectedServiceId || !startTime) return false;
+    
+    // For 2 Ladies services, need second therapist
+    if (needsSecondTherapist && !selectedTherapist2Id) return false;
+    
+    // Can't select same therapist twice
+    if (needsSecondTherapist && selectedTherapist2Id === therapist?.id) return false;
+    
+    return true;
   };
 
   const handleConfirm = () => {
@@ -97,8 +119,14 @@ export default function BookingModal({
     const startDateTime = new Date();
     startDateTime.setHours(parseInt(hours), parseInt(minutes), 0, 0);
 
+    // Build therapist IDs array
+    const therapistIds = [therapist.id];
+    if (needsSecondTherapist && selectedTherapist2Id) {
+      therapistIds.push(selectedTherapist2Id);
+    }
+
     onConfirmBooking({
-      therapistIds: [therapist.id],
+      therapistIds,
       serviceId: selectedServiceId as number,
       startTime: startDateTime,
       note: note.trim() || undefined
@@ -166,6 +194,28 @@ export default function BookingModal({
               />
             </div>
           </div>
+
+          {/* Second Therapist Selection (for 2 Ladies services) */}
+          {needsSecondTherapist && (
+            <div>
+              <label htmlFor="booking-therapist2-select" className="block text-sm font-medium text-gray-300 mb-2">
+                Second Therapist (Required for 2 Ladies)
+              </label>
+              <select
+                id="booking-therapist2-select"
+                value={selectedTherapist2Id}
+                onChange={(e) => setSelectedTherapist2Id(e.target.value)}
+                className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+              >
+                <option value="">Select second therapist...</option>
+                {availableTherapists.map(therapist => (
+                  <option key={therapist.id} value={therapist.id}>
+                    {therapist.name} ({therapist.status})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Booking Summary */}
           <div className="bg-gray-900 p-4 rounded-md text-center text-sm">

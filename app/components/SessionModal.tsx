@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Service, ServiceCategory, Room, Therapist } from '../types';
+import { useState, useEffect, useCallback } from 'react';
+import { Service, ServiceCategory, Room, Therapist, BookingWithDetails } from '../types';
 
 // Services data from the HTML version
 const SERVICES: Service[] = [
@@ -32,6 +32,7 @@ interface SessionModalProps {
   preselectedTherapistId?: string;
   bookingId?: string;
   bookingNote?: string;
+  bookingData?: BookingWithDetails;
 }
 
 export default function SessionModal({
@@ -42,7 +43,8 @@ export default function SessionModal({
   rooms,
   preselectedTherapistId,
   bookingId,
-  bookingNote
+  bookingNote,
+  bookingData
 }: SessionModalProps) {
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory | ''>('');
   const [selectedServiceId, setSelectedServiceId] = useState<number | ''>('');
@@ -54,20 +56,22 @@ export default function SessionModal({
   // Reset form when modal opens
   useEffect(() => {
     if (isOpen) {
-      if (bookingId && bookingNote) {
-        // Opening from booking
+      if (bookingId && bookingData) {
+        // Opening from booking - pre-populate from booking data
         setIsFromBooking(true);
-        // Pre-populate from booking data
-        const booking = { serviceId: 1, therapistIds: [preselectedTherapistId || ''] }; // Mock booking data
-        const service = SERVICES.find(s => s.id === booking.serviceId);
-        if (service) {
-          setSelectedCategory(service.category);
-          setSelectedServiceId(service.id);
-          setSelectedTherapist1Id(booking.therapistIds[0]);
-          if (booking.therapistIds.length > 1) {
-            setSelectedTherapist2Id(booking.therapistIds[1]);
-          }
+        const service = bookingData.service;
+        
+        setSelectedCategory(service.category);
+        setSelectedServiceId(service.id);
+        setSelectedTherapist1Id(bookingData.therapist_ids[0]);
+        
+        if (bookingData.therapist_ids.length > 1) {
+          setSelectedTherapist2Id(bookingData.therapist_ids[1]);
+        } else {
+          setSelectedTherapist2Id('');
         }
+        
+        setSelectedRoomId('');
       } else {
         // Opening for new session
         setIsFromBooking(false);
@@ -78,7 +82,7 @@ export default function SessionModal({
         setSelectedRoomId('');
       }
     }
-  }, [isOpen, bookingId, bookingNote, preselectedTherapistId]);
+  }, [isOpen, bookingId, bookingData, preselectedTherapistId]);
 
   // Get available therapists (only Available status)
   const availableTherapists = therapists.filter(t => t.status === 'Available');
@@ -89,7 +93,7 @@ export default function SessionModal({
     : [];
 
   // Get compatible rooms based on selected service
-  const getCompatibleRooms = () => {
+  const getCompatibleRooms = useCallback(() => {
     if (!selectedServiceId) return rooms.filter(r => r.status === 'Available');
     
     const service = SERVICES.find(s => s.id === selectedServiceId);
@@ -104,18 +108,28 @@ export default function SessionModal({
       r.status === 'Available' && 
       compatibleTypes.includes(r.type)
     );
-  };
+  }, [selectedServiceId, rooms]);
 
   const compatibleRooms = getCompatibleRooms();
 
   // Update room selection when service changes
   useEffect(() => {
-    if (selectedServiceId && compatibleRooms.length > 0) {
-      setSelectedRoomId(compatibleRooms[0].id);
-    } else {
-      setSelectedRoomId('');
+    if (selectedServiceId) {
+      const newCompatibleRooms = getCompatibleRooms();
+      if (newCompatibleRooms.length > 0) {
+        // Only auto-select if current room is not compatible with new service
+        const currentRoom = rooms.find(r => r.id === selectedRoomId);
+        const isCurrentRoomCompatible = currentRoom && 
+          newCompatibleRooms.some(r => r.id === currentRoom.id);
+        
+        if (!isCurrentRoomCompatible) {
+          setSelectedRoomId(newCompatibleRooms[0].id);
+        }
+      } else {
+        setSelectedRoomId('');
+      }
     }
-  }, [selectedServiceId, compatibleRooms]);
+  }, [selectedServiceId, getCompatibleRooms, rooms, selectedRoomId]);
 
   // Validation
   const isFormValid = () => {

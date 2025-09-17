@@ -5,6 +5,7 @@ interface TherapistGridProps {
   therapists: Therapist[];
   activeSessions?: SessionWithDetails[];
   bookings?: BookingWithDetails[];
+  rooms?: Array<{id: string; name: string}>;
   onTherapistClick?: (therapist: Therapist) => void;
   onBookSession?: (therapistId: string) => void;
   onAddExpense?: (therapistId: string) => void;
@@ -12,6 +13,8 @@ interface TherapistGridProps {
   onModifySession?: (sessionId: string) => void;
   onBeginSessionTimer?: (sessionId: string) => void;
   onCompleteSession?: (sessionId: string) => void;
+  onBookingClick?: (bookingId: string) => void;
+  onCancelBooking?: (bookingId: string) => void;
   getSessionTimeRemaining?: (session: SessionWithDetails) => string | null;
   onAddTherapist?: () => void;
 }
@@ -20,6 +23,7 @@ export default function TherapistGrid({
   therapists, 
   activeSessions = [],
   bookings = [],
+  rooms = [],
   onTherapistClick,
   onBookSession,
   onAddExpense,
@@ -27,6 +31,8 @@ export default function TherapistGrid({
   onModifySession,
   onBeginSessionTimer,
   onCompleteSession,
+  onBookingClick,
+  onCancelBooking,
   getSessionTimeRemaining,
   onAddTherapist
 }: TherapistGridProps) {
@@ -34,10 +40,8 @@ export default function TherapistGrid({
     return activeSessions.find(s => s.therapist_ids.includes(therapistId));
   };
 
-  const getTotalExpenses = () => {
-    // This would need to be calculated from therapist expenses
-    // For now, returning 0 as placeholder
-    return 0;
+  const getTotalExpenses = (therapist: Therapist) => {
+    return therapist.expenses?.reduce((sum, expense) => sum + expense.amount, 0) || 0;
   };
 
   return (
@@ -46,7 +50,9 @@ export default function TherapistGrid({
         <h2 className="text-xl font-bold text-white">Therapists on Duty</h2>
         <button 
           className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 px-4 rounded-lg transition duration-200"
-          onClick={() => onAddTherapist?.()}
+          onClick={() => {
+            onAddTherapist?.();
+          }}
         >
           Add Therapist
         </button>
@@ -57,7 +63,7 @@ export default function TherapistGrid({
       ) : (
         therapists.map((therapist) => {
           const activeSession = findActiveSessionForTherapist(therapist.id);
-          const totalExpenses = getTotalExpenses();
+          const totalExpenses = getTotalExpenses(therapist);
 
           return (
         <TherapistCard
@@ -66,6 +72,7 @@ export default function TherapistGrid({
           activeSession={activeSession}
           bookings={bookings}
           totalExpenses={totalExpenses}
+          rooms={rooms}
           onTherapistClick={onTherapistClick}
           onBookSession={onBookSession}
           onAddExpense={onAddExpense}
@@ -73,6 +80,8 @@ export default function TherapistGrid({
           onModifySession={onModifySession}
           onBeginSessionTimer={onBeginSessionTimer}
           onCompleteSession={onCompleteSession}
+          onBookingClick={onBookingClick}
+          onCancelBooking={onCancelBooking}
           getSessionTimeRemaining={getSessionTimeRemaining}
         />
           );
