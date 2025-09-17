@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Therapist, SessionWithDetails, Walkout, ShopExpense, FinancialSummary } from '../types';
 import PrintDailyReportButton from './PrintDailyReportButton';
-import EnhancedPDFDailyReport from './EnhancedPDFDailyReport';
 
 interface ReportModalProps {
   isOpen: boolean;
@@ -281,80 +280,32 @@ export default function ReportModal({
 
           {/* Footer */}
           <div className="flex justify-between items-center pt-4">
-            <div className="flex space-x-3">
-              <PrintDailyReportButton
-                reportData={{
-                  date: new Date().toLocaleDateString('en-US', { 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                  }),
-                  totalRevenue: financials.total_revenue,
-                  totalSessions: completedSessions.length,
-                  totalWalkouts: walkouts.reduce((sum, w) => sum + w.count, 0),
-                  shopExpenses: shopExpenses.reduce((sum, e) => sum + e.amount, 0),
-                  therapistBreakdown: therapists.map(therapist => {
-                    const therapistSessions = completedSessions.filter(session => 
-                      session.therapist_ids.includes(therapist.id)
-                    );
-                    const totalPayout = therapistSessions.reduce((sum, session) => 
-                      sum + (session.payout || 0), 0
-                    );
-                    return {
-                      name: therapist.name,
-                      sessions: therapistSessions.length,
-                      payout: totalPayout
-                    };
-                  }).filter(t => t.sessions > 0)
-                }}
-              />
-              <EnhancedPDFDailyReport
-                reportData={{
-                  date: new Date().toLocaleDateString('en-US', { 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                  }),
-                  totalRevenue: financials.total_revenue,
-                  totalSessions: completedSessions.length,
-                  totalWalkouts: walkouts.reduce((sum, w) => sum + w.count, 0),
-                  shopExpenses: shopExpenses.reduce((sum, e) => sum + e.amount, 0),
-                  therapistBreakdown: therapists.map(therapist => {
-                    const therapistSessions = completedSessions.filter(session => 
-                      session.therapist_ids.includes(therapist.id)
-                    );
-                    const totalPayout = therapistSessions.reduce((sum, session) => 
-                      sum + (session.payout || 0), 0
-                    );
-                    return {
-                      name: therapist.name,
-                      sessions: therapistSessions.length,
-                      payout: totalPayout
-                    };
-                  }).filter(t => t.sessions > 0),
-                  therapists: therapists.map(therapist => ({
+            <PrintDailyReportButton
+              reportData={{
+                date: new Date().toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                }),
+                totalRevenue: financials.total_revenue,
+                totalSessions: completedSessions.length,
+                totalWalkouts: walkouts.reduce((sum, w) => sum + w.count, 0),
+                shopExpenses: shopExpenses.reduce((sum, e) => sum + e.amount, 0),
+                therapistBreakdown: therapists.map(therapist => {
+                  const therapistSessions = completedSessions.filter(session => 
+                    session.therapist_ids.includes(therapist.id)
+                  );
+                  const totalPayout = therapistSessions.reduce((sum, session) => 
+                    sum + (session.payout || 0), 0
+                  );
+                  return {
                     name: therapist.name,
-                    status: therapist.status,
-                    checkIn: therapist.check_in_time,
-                    checkOut: therapist.check_out_time,
-                    totalExpenses: therapist.expenses.reduce((sum, e) => sum + e.amount, 0),
-                    sessionCount: completedSessions.filter(session => 
-                      session.therapist_ids.includes(therapist.id)
-                    ).length
-                  })),
-                  walkouts: walkouts.map(walkout => ({
-                    reason: walkout.reason,
-                    count: walkout.count,
-                    created_at: walkout.created_at
-                  })),
-                  shopExpenses: shopExpenses.map(expense => ({
-                    note: expense.note || 'Unspecified expense',
-                    amount: expense.amount,
-                    created_at: expense.created_at
-                  }))
-                }}
-              />
-            </div>
+                    sessions: therapistSessions.length,
+                    payout: totalPayout
+                  };
+                }).filter(t => t.sessions > 0)
+              }}
+            />
             <button
               onClick={onClose}
               className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-6 rounded-lg transition duration-200"
