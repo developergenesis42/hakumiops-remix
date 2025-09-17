@@ -708,3 +708,161 @@ export async function calculateFinancials(date?: string): Promise<{ data: Financ
     };
   }
 }
+
+// ============================================================================
+// MONTHLY REPORT OPERATIONS
+// ============================================================================
+
+export async function getMonthlyData(month: string): Promise<{ data: any; error: string | null }> {
+  try {
+    const { supabase } = createClient();
+    
+    // Parse month (format: YYYY-MM)
+    const [year, monthNum] = month.split('-');
+    const startDate = `${year}-${monthNum}-01T00:00:00Z`;
+    const endDate = new Date(parseInt(year), parseInt(monthNum), 0, 23, 59, 59).toISOString();
+    
+    console.log(`Fetching monthly data for ${month}: ${startDate} to ${endDate}`);
+    
+    // Get sessions for the month
+    const { data: sessions, error: sessionsError } = await supabase
+      .from("sessions")
+      .select("*")
+      .gte("created_at", startDate)
+      .lte("created_at", endDate);
+    
+    if (sessionsError) throw sessionsError;
+    
+    // Get therapist expenses for the month
+    const { data: therapistExpenses, error: expensesError } = await supabase
+      .from("therapist_expenses")
+      .select("*")
+      .gte("created_at", startDate)
+      .lte("created_at", endDate);
+    
+    if (expensesError) throw expensesError;
+    
+    // Get shop expenses for the month
+    const { data: shopExpenses, error: shopExpensesError } = await supabase
+      .from("shop_expenses")
+      .select("*")
+      .gte("created_at", startDate)
+      .lte("created_at", endDate);
+    
+    if (shopExpensesError) throw shopExpensesError;
+    
+    // Get walkouts for the month
+    const { data: walkouts, error: walkoutsError } = await supabase
+      .from("walkouts")
+      .select("*")
+      .gte("created_at", startDate)
+      .lte("created_at", endDate);
+    
+    if (walkoutsError) throw walkoutsError;
+    
+    // Get all therapists for breakdown
+    const { data: therapists, error: therapistsError } = await supabase
+      .from("therapists")
+      .select("*");
+    
+    if (therapistsError) throw therapistsError;
+    
+    // Calculate financial totals
+    const totalRevenue = (sessions || []).reduce((sum, session) => sum + Number(session.price || 0), 0);
+    const therapistPayouts = (sessions || []).reduce((sum, session) => sum + Number(session.payout || 0), 0);
+    const totalTherapistExpenses = (therapistExpenses || []).reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+    const totalShopExpenses = (shopExpenses || []).reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+    const shopRevenue = totalRevenue - therapistPayouts + totalTherapistExpenses - totalShopExpenses;
+    
+    // Calculate walkout statistics
+    const totalWalkouts = (walkouts || []).length;
+    const totalWalkoutPeople = (walkouts || []).reduce((sum, walkout) => sum + Number(walkout.count || 0), 0);
+    
+    // Group walkouts by reason
+    const walkoutReasons: Record<string, number> = {};
+    (walkouts || []).forEach(walkout => {
+      const reason = walkout.reason || 'Unknown';
+      walkoutReasons[reason] = (walkoutReasons[reason] || 0) + Number(walkout.count || 0);
+    });
+    
+    // Calculate therapist breakdown
+    const therapistBreakdown = [];
+    if (therapists) {
+      for (const therapist of therapists) {
+        // Get sessions for this therapist in this month
+        const therapistSessions = (sessions || []).filter(session => 
+          session.therapist_ids && session.therapist_ids.includes(therapist.id)
+        );
+        
+        // Get expenses for this therapist in this month
+        const therapistExpenses = (therapistExpenses || []).filter(expense => 
+          expense.therapist_id === therapist.id
+        );
+        
+        if (therapistSessions.length > 0 || therapistExpenses.length > 0) {
+          const grossPayout = therapistSessions.reduce((sum, session) => sum + Number(session.payout || 0), 0);
+          const expenses = therapistExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+          const netPayout = grossPayout - expenses;
+          
+          // Calculate hours (simplified - using check_in/check_out if available)
+          let totalHours = '0 hrs';
+          if (therapist.check_in_time && therapist.check_out_time) {
+            const checkIn = new Date(therapist.check_in_time);
+            const checkOut = new Date(therapist.check_out_time);
+            const hours = (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60);
+            totalHours = `${hours.toFixed(1)} hrs`;
+          }
+          
+          therapistBreakdown.push({
+            name: therapist.name,
+            grossPayout,
+            sessionCount: therapistSessions.length,
+            expenses,
+            netPayout,
+            checkIn: therapist.check_in_time ? new Date(therapist.check_in_time).toLocaleTimeString('en-US', { 
+              hour: '2-digit', 
+              minute: '2-digit',
+              hour12: false 
+            }) : 'N/A',
+            checkOut: therapist.check_out_time ? new Date(therapist.check_out_time).toLocaleTimeString('en-US', { 
+              hour: '2-digit', 
+              minute: '2-digit',
+              hour12: false 
+            }) : 'N/A',
+            totalHours
+          });
+        }
+      }
+    }
+    
+    // Format shop expenses for display
+    const formattedShopExpenses = (shopExpenses || []).map(expense => ({
+      note: expense.note || 'Unspecified expense',
+      amount: Number(expense.amount || 0),
+      timestamp: new Date(expense.created_at)
+    }));
+    
+    const monthlyData = {
+      month,
+      totalRevenue,
+      shopRevenue,
+      therapistPayouts,
+      totalSessions: (sessions || []).length,
+      totalWalkouts,
+      totalWalkoutPeople,
+      totalShopExpenses,
+      therapistBreakdown,
+      walkoutReasons,
+      shopExpenses: formattedShopExpenses
+    };
+    
+    return { data: monthlyData, error: null };
+    
+  } catch (error) {
+    console.error('Error fetching monthly data:', error);
+    return { 
+      data: null, 
+      error: error instanceof Error ? error.message : 'Failed to fetch monthly data' 
+    };
+  }
+}

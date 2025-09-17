@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 interface MonthlyReportModalProps {
   isOpen: boolean;
   onClose: () => void;
-  // We'll add data props later when we implement data persistence
 }
 
 interface MonthlyData {
@@ -51,67 +50,37 @@ export default function MonthlyReportModal({ isOpen, onClose }: MonthlyReportMod
   const loadMonthlyData = async (month: string) => {
     setIsLoading(true);
     try {
-      // TODO: Replace with actual Supabase query
-      // For now, we'll generate mock data
-      const mockData: MonthlyData = {
-        month,
-        totalRevenue: 125000,
-        shopRevenue: 45000,
-        therapistPayouts: 80000,
-        totalSessions: 45,
-        totalWalkouts: 12,
-        totalWalkoutPeople: 18,
-        totalShopExpenses: 2500,
-        therapistBreakdown: [
-          {
-            name: 'Sarah Johnson',
-            grossPayout: 15000,
-            sessionCount: 8,
-            expenses: 500,
-            netPayout: 14500,
-            checkIn: '09:00',
-            checkOut: '18:00',
-            totalHours: '9.0 hrs'
-          },
-          {
-            name: 'Emma Wilson',
-            grossPayout: 12000,
-            sessionCount: 6,
-            expenses: 300,
-            netPayout: 11700,
-            checkIn: '10:00',
-            checkOut: '17:00',
-            totalHours: '7.0 hrs'
-          },
-          {
-            name: 'Lisa Chen',
-            grossPayout: 18000,
-            sessionCount: 10,
-            expenses: 800,
-            netPayout: 17200,
-            checkIn: '08:30',
-            checkOut: '19:00',
-            totalHours: '10.5 hrs'
-          }
-        ],
-        walkoutReasons: {
-          'No Rooms': 5,
-          'No Ladies': 3,
-          'Price Too High': 2,
-          'Client Too Picky': 1,
-          'Chinese': 1,
-          'Laowai': 0
-        },
-        shopExpenses: [
-          { note: 'Cleaning supplies', amount: 800, timestamp: new Date() },
-          { note: 'Towels', amount: 500, timestamp: new Date() },
-          { note: 'Utilities', amount: 1200, timestamp: new Date() }
-        ]
-      };
+      // Fetch real data from the API
+      const response = await fetch(`/api/monthly-data?month=${encodeURIComponent(month)}`);
       
-      setMonthlyData(mockData);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch monthly data: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      
+      setMonthlyData(result.data);
     } catch (error) {
       console.error('Error loading monthly data:', error);
+      
+      // Fallback to empty data if there's an error
+      setMonthlyData({
+        month,
+        totalRevenue: 0,
+        shopRevenue: 0,
+        therapistPayouts: 0,
+        totalSessions: 0,
+        totalWalkouts: 0,
+        totalWalkoutPeople: 0,
+        totalShopExpenses: 0,
+        therapistBreakdown: [],
+        walkoutReasons: {},
+        shopExpenses: []
+      });
     } finally {
       setIsLoading(false);
     }
