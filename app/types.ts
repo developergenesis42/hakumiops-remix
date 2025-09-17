@@ -23,6 +23,7 @@ export interface Therapist {
   check_out_time: string | null; // ISO timestamp
   active_room_id: string | null;
   completed_room_ids: string[];
+  expenses: Array<{id: string; name: string; amount: number}>;
   created_at: string; // ISO timestamp
   updated_at: string; // ISO timestamp
 }
