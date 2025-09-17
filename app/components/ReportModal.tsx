@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Therapist, SessionWithDetails, Walkout, ShopExpense, FinancialSummary } from '../types';
+import PrintDailyReportButton from './PrintDailyReportButton';
 
 interface ReportModalProps {
   isOpen: boolean;
@@ -278,7 +279,33 @@ export default function ReportModal({
           </div>
 
           {/* Footer */}
-          <div className="flex justify-end items-center pt-4">
+          <div className="flex justify-between items-center pt-4">
+            <PrintDailyReportButton
+              reportData={{
+                date: new Date().toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                }),
+                totalRevenue: financials.total_revenue,
+                totalSessions: completedSessions.length,
+                totalWalkouts: walkouts.reduce((sum, w) => sum + w.count, 0),
+                shopExpenses: shopExpenses.reduce((sum, e) => sum + e.amount, 0),
+                therapistBreakdown: therapists.map(therapist => {
+                  const therapistSessions = completedSessions.filter(session => 
+                    session.therapist_ids.includes(therapist.id)
+                  );
+                  const totalPayout = therapistSessions.reduce((sum, session) => 
+                    sum + (session.payout || 0), 0
+                  );
+                  return {
+                    name: therapist.name,
+                    sessions: therapistSessions.length,
+                    payout: totalPayout
+                  };
+                }).filter(t => t.sessions > 0)
+              }}
+            />
             <button
               onClick={onClose}
               className="bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-6 rounded-lg transition duration-200"
