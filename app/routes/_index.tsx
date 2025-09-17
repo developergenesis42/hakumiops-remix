@@ -16,7 +16,6 @@ import ReportModal from "~/components/ReportModal";
 import ModifySessionModal from "~/components/ModifySessionModal";
 import MonthlyReportModal from "~/components/MonthlyReportModal";
 import EndOfDayModal from "~/components/EndOfDayModal";
-import PrintReceiptButton from "~/components/PrintReceiptButton";
 // ClientOnly import removed
 import { Room, Therapist, SessionWithDetails, BookingWithDetails, ShopExpense, Walkout, FinancialSummary } from "~/types";
 
@@ -1452,69 +1451,6 @@ export default function Home() {
                 )}
               </div>
             </div>
-          </div>
-        </aside>
-
-        {/* Completed Sessions Section */}
-        <aside className="flex-shrink-0 w-full md:w-80 bg-gray-900/80 backdrop-blur-sm border-l border-gray-700 p-4 flex flex-col">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-bold text-white">Completed Sessions</h3>
-            <span className="bg-green-600 text-white text-xs font-semibold px-2 py-1 rounded-full">
-              {completedSessions.length}
-            </span>
-          </div>
-          
-          <div className="flex-grow overflow-y-auto pr-2">
-            {completedSessions.length === 0 ? (
-              <div className="text-center text-gray-500 text-sm pt-4">No completed sessions today.</div>
-            ) : (
-              <div className="space-y-2">
-                {completedSessions.slice(0, 10).map(session => (
-                  <div key={session.id} className="bg-gray-800 p-3 rounded-md">
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-white">{session.service?.name || 'Service'}</p>
-                        <p className="text-xs text-gray-400">
-                          {session.therapists?.map(t => t.name).join(', ') || 'No therapist'}
-                        </p>
-                        <p className="text-xs text-gray-400">Room: {session.room?.name || 'Unknown'}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-bold text-green-400">
-                          ฿{session.price?.toLocaleString('en-US', { minimumFractionDigits: 2 }) || '0.00'}
-                        </p>
-                        <p className="text-xs text-gray-400">
-                          {new Date(session.created_at).toLocaleTimeString('en-US', { 
-                            hour: '2-digit', 
-                            minute: '2-digit',
-                            hour12: false 
-                          })}
-                        </p>
-                      </div>
-                    </div>
-                    <PrintReceiptButton 
-                      sessionData={{
-                        id: session.id,
-                        service: {
-                          name: session.service?.name || 'Service',
-                          duration: session.duration || 0,
-                          price: session.price || 0
-                        },
-                        therapists: session.therapists || [],
-                        room: session.room || { name: 'Unknown' },
-                        created_at: session.created_at
-                      }}
-                      className="w-full"
-                    />
-                  </div>
-                ))}
-                {completedSessions.length > 10 && (
-                  <div className="text-center text-gray-400 text-xs">
-                    Showing latest 10 of {completedSessions.length} sessions
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </aside>
       </main>
