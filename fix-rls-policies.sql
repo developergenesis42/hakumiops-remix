@@ -24,12 +24,10 @@ ALTER TABLE shop_expenses DISABLE ROW LEVEL SECURITY;
 ALTER TABLE walkouts DISABLE ROW LEVEL SECURITY;
 ALTER TABLE daily_reports DISABLE ROW LEVEL SECURITY;
 
--- Add missing rooms if they don't exist
-INSERT INTO rooms (name, type, status) VALUES
-  ('Room 7', 'Large Shower', 'Available'),
-  ('Room 8', 'Large Shower', 'Available'),
-  ('Room 9', 'VIP Jacuzzi', 'Available')
-ON CONFLICT (name) DO NOTHING;
+-- Add missing rooms (run these one by one if needed)
+INSERT INTO rooms (name, type, status) VALUES ('Room 7', 'Large Shower', 'Available');
+INSERT INTO rooms (name, type, status) VALUES ('Room 8', 'Large Shower', 'Available');
+INSERT INTO rooms (name, type, status) VALUES ('Room 9', 'VIP Jacuzzi', 'Available');
 
 -- Verify the fix
 SELECT 'Rooms count: ' || COUNT(*) as result FROM rooms;
