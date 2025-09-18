@@ -18,9 +18,6 @@ export default function RoomList({ rooms, activeSessions = [], onRoomStatusChang
     
     return () => clearInterval(interval);
   }, []);
-  const getStatusText = (status: RoomStatus) => {
-    return status === 'Available' ? 'Available' : 'Occupied';
-  };
 
 
   const getSessionForRoom = (roomId: string) => {
@@ -53,11 +50,11 @@ export default function RoomList({ rooms, activeSessions = [], onRoomStatusChang
     return acc;
   }, {} as Record<string, Room[]>);
 
-  // Calculate room statistics
+  // Calculate room statistics based on active sessions
   const roomStats = {
     total: rooms.length,
-    available: rooms.filter(r => r.status === 'Available').length,
-    occupied: rooms.filter(r => r.status === 'Occupied').length
+    available: rooms.filter(r => !getSessionForRoom(r.id)).length,
+    occupied: rooms.filter(r => getSessionForRoom(r.id)).length
   };
 
   return (
@@ -110,7 +107,7 @@ export default function RoomList({ rooms, activeSessions = [], onRoomStatusChang
                     <div
                       key={room.id}
                       className={`p-3 rounded-lg text-center shadow-md ${
-                        room.status === 'Available' 
+                        !session 
                           ? 'bg-gray-800 hover:bg-gray-700 cursor-pointer transition-colors' 
                           : 'bg-gray-800/50 border-l-4 border-red-500'
                       }`}
@@ -132,8 +129,8 @@ export default function RoomList({ rooms, activeSessions = [], onRoomStatusChang
                       title={session ? 'Room in use' : 'Click to toggle status'}
                     >
                       <h5 className="font-semibold text-white">{room.name}</h5>
-                      <span className={`status-badge ${room.status === 'Available' ? 'status-available' : 'status-occupied'}`}>
-                        {getStatusText(room.status)}
+                      <span className={`status-badge ${!session ? 'status-available' : 'status-occupied'}`}>
+                        {!session ? 'Available' : 'Occupied'}
                       </span>
                       
                       {session && (
