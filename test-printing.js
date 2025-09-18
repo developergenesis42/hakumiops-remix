@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
 // Test script to verify PrintNode integration
-const { getPrintNodeService } = require('./app/utils/printnode.server.ts');
+import dotenv from 'dotenv';
+import { getPrintNodeService } from './app/utils/printnode.server.ts';
+
+// Load environment variables
+dotenv.config({ path: '.env.local' });
 
 async function testPrinting() {
   try {
@@ -41,8 +45,8 @@ async function testPrinting() {
       
       const result = await printNodeService.printReceipt(defaultPrinter.id, testReceiptData);
       console.log('✅ Test receipt printed successfully!');
-      console.log('   Print job ID:', result.id);
-      console.log('   Printer:', result.printer.name);
+      console.log('   Print job ID:', result?.id || 'N/A');
+      console.log('   Printer:', defaultPrinter.name);
       
     } else {
       console.log('⚠️  No printers found. Please check your PrintNode setup.');

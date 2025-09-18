@@ -150,7 +150,7 @@ export class PrintNodeService {
     paymentMethod?: string;
     discount?: number;
     wob?: string;
-    vip?: boolean;
+    vip_number?: number;
   }): Promise<{ id: number; printer: { id: number; name: string } }> {
     const escPosData = this.generateReceiptESC_POS(receiptData);
     return this.printJob(printerId, escPosData, `Receipt - ${receiptData.service}`, 'raw_base64');
@@ -172,7 +172,7 @@ export class PrintNodeService {
     paymentMethod?: string;
     discount?: number;
     wob?: string;
-    vip?: boolean;
+    vip_number?: number;
   }, copies: number = 1): Promise<{ id: number; printer: { id: number; name: string } }[]> {
     const printJobs = [];
     
@@ -219,7 +219,7 @@ export class PrintNodeService {
     clientName?: string;
     discount?: number;
     wob?: string;
-    vip?: boolean;
+    vip_number?: number;
   }): string {
     try {
       // ESC/POS commands
@@ -299,6 +299,19 @@ export class PrintNodeService {
       // Optional metadata (smaller text at bottom)
       if (data.discount && data.discount > 0) {
         receipt += LF + `Discount: -${data.discount} THB` + LF;
+      }
+      
+      // WOB and VIP status section
+      let statusLine = '';
+      if (data.wob) {
+        statusLine += `Type: ${data.wob}`;
+      }
+      if (data.vip_number) {
+        if (statusLine) statusLine += ' | ';
+        statusLine += `VIP: ${data.vip_number}`;
+      }
+      if (statusLine) {
+        receipt += LF + statusLine + LF;
       }
       
       // Cut paper and feed

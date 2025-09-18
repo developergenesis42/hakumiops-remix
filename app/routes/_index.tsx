@@ -1,7 +1,6 @@
 
-import { json } from "@remix-run/node";
 import { useLoaderData } from "@remix-run/react";
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useRef } from "react";
 // Realtime subscriptions removed - will be handled differently
 // Validation will be handled on the server side in API routes
 import RoomList from "~/components/RoomList";
@@ -9,6 +8,7 @@ import TherapistGrid from "~/components/TherapistGrid";
 import AddTherapistModal from "~/components/AddTherapistModal";
 import SessionModal from "~/components/SessionModal";
 import BookingModal from "~/components/BookingModal";
+import BookingViewModal from "~/components/BookingViewModal";
 import ExpenseModal from "~/components/ExpenseModal";
 import DepartureModal from "~/components/DepartureModal";
 import ShopExpenseModal from "~/components/ShopExpenseModal";
@@ -17,7 +17,7 @@ import ModifySessionModal from "~/components/ModifySessionModal";
 import MonthlyReportModal from "~/components/MonthlyReportModal";
 import EndOfDayModal from "~/components/EndOfDayModal";
 // ClientOnly import removed
-import { Room, Therapist, SessionWithDetails, BookingWithDetails, ShopExpense, Walkout, FinancialSummary } from "~/types";
+import { Room, Therapist, SessionWithDetails, BookingWithDetails, ShopExpense, Walkout, FinancialSummary, AddonItem } from "~/types";
 
 export async function loader() {
   try {
@@ -29,7 +29,7 @@ export async function loader() {
       getRooms, 
       getServices, 
       getSessionsWithDetails, 
-      getBookings, 
+      getBookingsWithDetails, 
       getWalkouts, 
       getShopExpenses,
       calculateFinancials
@@ -43,7 +43,7 @@ export async function loader() {
       getRooms(),
       getServices(),
       getSessionsWithDetails(), // Use getSessionsWithDetails instead of getSessions
-      getBookings(),
+      getBookingsWithDetails(),
       getWalkouts(),
       getShopExpenses(),
       calculateFinancials()
@@ -69,7 +69,7 @@ export async function loader() {
 
     console.log("Loader: Unique therapists count:", uniqueTherapists.length);
 
-    return json({ 
+    return Response.json({ 
       therapists: uniqueTherapists,
       rooms: roomsResult.data,
       services: servicesResult.data,
@@ -91,7 +91,7 @@ export async function loader() {
     });
   } catch (error) {
     console.error("Loader: Error occurred:", error);
-    return json({
+    return Response.json({
       therapists: [],
       rooms: [],
       services: [],
@@ -155,7 +155,12 @@ export default function Home() {
       total_revenue: 0,
       shop_revenue: 0,
       therapist_payouts: 0,
-      net_profit: 0
+      net_profit: 0,
+      cash_revenue: 0,
+      thai_qr_revenue: 0,
+      wechat_revenue: 0,
+      alipay_revenue: 0,
+      fx_cash_revenue: 0
     }
   } = useLoaderData<LoaderData>();
   
@@ -168,6 +173,7 @@ export default function Home() {
   const [isAddTherapistModalOpen, setIsAddTherapistModalOpen] = useState(false);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+  const [isBookingViewModalOpen, setIsBookingViewModalOpen] = useState(false);
   const [selectedTherapistForBooking, setSelectedTherapistForBooking] = useState<Therapist | null>(null);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [selectedTherapistForExpense, setSelectedTherapistForExpense] = useState<Therapist | null>(null);
@@ -183,6 +189,7 @@ export default function Home() {
   
   // Booking to session conversion state
   const [selectedBookingForSession, setSelectedBookingForSession] = useState<BookingWithDetails | null>(null);
+  const bookingForSessionRef = useRef<BookingWithDetails | null>(null);
   const [completedSessions, setCompletedSessions] = useState<SessionWithDetails[]>(initialSessions.filter(s => s.status === 'Completed'));
   const [activeSessions, setActiveSessions] = useState<SessionWithDetails[]>(initialSessions.filter(s => s.status !== 'Completed'));
   const [walkouts, setWalkouts] = useState<Walkout[]>(initialWalkouts);
@@ -289,16 +296,10 @@ export default function Home() {
     const booking = bookings.find(b => b.id === bookingId);
     if (!booking) return;
     
-    // Check if primary therapist is available
-    const primaryTherapist = therapists.find(t => t.id === booking.therapist_ids[0]);
-    if (!primaryTherapist || primaryTherapist.status !== 'Available') {
-      alert('Therapist is not available to start this booking.');
-      return;
-    }
-    
+    // Always allow viewing booking details
     setSelectedBookingForSession(booking);
-    setIsSessionModalOpen(true);
-  }, [bookings, therapists]);
+    setIsBookingViewModalOpen(true);
+  }, [bookings]);
 
   const handleCancelBooking = useCallback(async (bookingId: string) => {
     if (!confirm('Are you sure you want to cancel this booking?')) {
@@ -354,7 +355,12 @@ export default function Home() {
     bookingId?: string;
     discount?: 0 | 200 | 300;
     wob?: 'W' | 'O' | 'B';
-    vip?: boolean;
+    vip_number?: number;
+    nationality?: 'Chinese' | 'Foreigner';
+    payment_method?: 'Cash' | 'Thai QR Code' | 'WeChat' | 'Alipay' | 'FX Cash (other than THB)';
+    addon_items?: AddonItem[];
+    addon_custom_amount?: number;
+    notes?: string;
   }) => {
     startSession(
       sessionData.serviceId,
@@ -363,11 +369,120 @@ export default function Home() {
       sessionData.bookingId,
       sessionData.discount,
       sessionData.wob,
-      sessionData.vip
+      sessionData.vip_number,
+      sessionData.nationality,
+      sessionData.payment_method,
+      sessionData.addon_items,
+      sessionData.addon_custom_amount,
+      sessionData.notes
     );
   };
 
-  const handleConfirmBooking = (bookingData: {
+  const handleUpdateBooking = useCallback(async (bookingId: string, updates: {
+    serviceId: number;
+    therapistIds: string[];
+    startTime: Date;
+    endTime: Date;
+    roomId?: string;
+    note?: string;
+  }) => {
+    try {
+      // Validate the updates before sending
+      if (!updates.serviceId || !updates.therapistIds.length || !updates.startTime || !updates.endTime) {
+        throw new Error('Invalid booking data provided');
+      }
+
+      // Check if end time is after start time
+      if (updates.endTime <= updates.startTime) {
+        throw new Error('End time must be after start time');
+      }
+
+      // Validate therapist IDs exist
+      const validTherapistIds = updates.therapistIds.filter(id => 
+        therapists.some(t => t.id === id)
+      );
+      
+      if (validTherapistIds.length !== updates.therapistIds.length) {
+        throw new Error('One or more therapist IDs are invalid');
+      }
+
+      const response = await fetch('/api/bookings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: bookingId,
+          ...updates,
+          startTime: updates.startTime.toISOString(),
+          endTime: updates.endTime.toISOString()
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update booking');
+      }
+
+      // Refresh bookings data
+      const updatedResponse = await fetch('/api/bookings');
+      if (updatedResponse.ok) {
+        const updatedBookings = await updatedResponse.json();
+        setBookings(updatedBookings.data || []);
+        
+        // Update room statuses if room assignment changed
+        const originalBooking = bookings.find(b => b.id === bookingId);
+        if (originalBooking) {
+          const oldRoomId = originalBooking.room_id;
+          const newRoomId = updates.roomId;
+          
+          // If room assignment changed
+          if (oldRoomId !== newRoomId) {
+            setRooms(prev => prev.map(room => {
+              // Mark old room as available (if it was assigned)
+              if (oldRoomId && room.id === oldRoomId) {
+                return { ...room, status: 'Available' as const };
+              }
+              // Mark new room as occupied (if assigned)
+              if (newRoomId && room.id === newRoomId) {
+                return { ...room, status: 'Occupied' as const };
+              }
+              return room;
+            }));
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to update booking:', error);
+      throw error;
+    }
+  }, [therapists, bookings]);
+
+  const handleStartSessionFromBooking = useCallback((bookingId: string) => {
+    console.log('handleStartSessionFromBooking called with bookingId:', bookingId);
+    const booking = bookings.find(b => b.id === bookingId);
+    console.log('Found booking:', booking);
+    if (!booking) {
+      console.log('No booking found with ID:', bookingId);
+      return;
+    }
+    
+    // Check if primary therapist is available
+    const primaryTherapist = therapists.find(t => t.id === booking.therapist_ids[0]);
+    console.log('Primary therapist:', primaryTherapist);
+    if (!primaryTherapist || primaryTherapist.status !== 'Available') {
+      alert('Therapist is not available to start this booking.');
+      return;
+    }
+    
+    console.log('Opening SessionModal with booking data');
+    // Store booking data in ref for immediate access
+    bookingForSessionRef.current = booking;
+    setSelectedBookingForSession(booking);
+    setIsSessionModalOpen(true);
+  }, [bookings, therapists]);
+
+  // Note: Modal opening is now handled directly in handleStartSessionFromBooking
+
+  const handleConfirmBooking = async (bookingData: {
     therapistIds: string[];
     serviceId: number;
     startTime: Date;
@@ -383,33 +498,39 @@ export default function Home() {
 
     const endTime = new Date(bookingData.startTime.getTime() + service.duration * 60000);
     
-    const newBooking: BookingWithDetails = {
-      id: Date.now().toString(),
-      therapist_ids: bookingData.therapistIds,
-      service_id: bookingData.serviceId,
-      start_time: bookingData.startTime.toISOString(),
-      end_time: endTime.toISOString(),
-      status: 'Scheduled',
-      note: bookingData.note || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      service: {
-        id: service.id,
-        category: service.category as '1 Lady' | '2 Ladies' | 'Couple',
-        room_type: service.room_type as 'Shower' | 'VIP Jacuzzi',
-        name: service.name,
-        duration: service.duration,
-        price: service.price,
-        payout: service.payout,
-        created_at: service.created_at
-      },
-      therapists: bookingData.therapistIds.map(id => therapists.find(t => t.id === id)).filter(Boolean) as Therapist[]
-    };
+    try {
+      // Save to database
+      const response = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serviceId: bookingData.serviceId,
+          therapistIds: bookingData.therapistIds,
+          startTime: bookingData.startTime.toISOString(),
+          endTime: endTime.toISOString(),
+          note: bookingData.note || null
+        })
+      });
 
-    setBookings(prev => {
-      const updated = [...prev, newBooking];
-      return updated.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
-    });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create booking');
+      }
+
+      const result = await response.json();
+      console.log('Booking created successfully:', result);
+
+      // Refresh bookings from database
+      const bookingsResponse = await fetch('/api/bookings');
+      if (bookingsResponse.ok) {
+        const bookingsData = await bookingsResponse.json();
+        setBookings(bookingsData.data || []);
+      }
+
+    } catch (error) {
+      console.error('Failed to create booking:', error);
+      setError(error instanceof Error ? error.message : 'Failed to create booking');
+    }
   };
 
   const handleConfirmExpense = async (expenseData: {
@@ -717,7 +838,12 @@ export default function Home() {
         total_revenue: 0,
         shop_revenue: 0,
         therapist_payouts: 0,
-        net_profit: 0
+        net_profit: 0,
+        cash_revenue: 0,
+        thai_qr_revenue: 0,
+        wechat_revenue: 0,
+        alipay_revenue: 0,
+        fx_cash_revenue: 0
       });
       
       // Clear completed sessions (data is archived in daily report)
@@ -866,6 +992,7 @@ export default function Home() {
     sessionId: string;
     newServiceId: number;
     newRoomId: string;
+    newTherapistIds?: string[];
   }) => {
     console.log('Modifying session:', modifyData);
     
@@ -885,6 +1012,22 @@ export default function Home() {
       return;
     }
 
+    // Handle therapist changes if provided
+    let newTherapistIds = session.therapist_ids;
+    if (modifyData.newTherapistIds) {
+      // Validate new therapists are available
+      const unavailableTherapists = modifyData.newTherapistIds
+        .map(id => therapists.find(t => t.id === id))
+        .filter(t => !t || (t.status !== 'Available' && !session.therapist_ids.includes(t.id)));
+      
+      if (unavailableTherapists.length > 0) {
+        setError(`${unavailableTherapists.map(t => t?.name).join(', ')} is/are not available.`);
+        return;
+      }
+      
+      newTherapistIds = modifyData.newTherapistIds;
+    }
+
     setIsLoading(true);
     setError(null);
 
@@ -898,6 +1041,7 @@ export default function Home() {
           updates: {
             service_id: modifyData.newServiceId,
             room_id: modifyData.newRoomId,
+            therapist_ids: newTherapistIds,
             duration: newService.duration,
             price: newService.price,
             payout: newService.payout
@@ -912,6 +1056,31 @@ export default function Home() {
         return;
       }
 
+      // Update therapist statuses if therapists changed
+      if (modifyData.newTherapistIds) {
+        const oldTherapistIds = session.therapist_ids;
+        const therapistsToRemove = oldTherapistIds.filter(id => !newTherapistIds.includes(id));
+        const therapistsToAdd = newTherapistIds.filter(id => !oldTherapistIds.includes(id));
+
+        // Remove old therapists from session (set to Available)
+        if (therapistsToRemove.length > 0) {
+          setTherapists(prev => prev.map(t => 
+            therapistsToRemove.includes(t.id) 
+              ? { ...t, status: 'Available' as const }
+              : t
+          ));
+        }
+
+        // Add new therapists to session (set to In Session)
+        if (therapistsToAdd.length > 0) {
+          setTherapists(prev => prev.map(t => 
+            therapistsToAdd.includes(t.id) 
+              ? { ...t, status: 'In Session' as const }
+              : t
+          ));
+        }
+      }
+
       // Update local state
       setActiveSessions(prev => prev.map(s => {
         if (s.id === modifyData.sessionId) {
@@ -919,6 +1088,7 @@ export default function Home() {
             ...s,
             service_id: modifyData.newServiceId,
             room_id: modifyData.newRoomId,
+            therapist_ids: newTherapistIds,
             duration: newService.duration,
             price: newService.price,
             payout: newService.payout,
@@ -930,7 +1100,8 @@ export default function Home() {
             room: {
               ...newRoom,
               status: 'Occupied' as const
-            }
+            },
+            therapists: newTherapistIds.map(id => therapists.find(t => t.id === id)).filter(Boolean) as Therapist[]
           };
 
           // If session is in progress, recalculate timer
@@ -977,7 +1148,7 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [activeSessions, services, rooms, sessionTimers, startTimerForSession, setActiveSessions, setRooms, setSessionTimers]);
+  }, [activeSessions, services, rooms, therapists, sessionTimers, startTimerForSession, setActiveSessions, setRooms, setTherapists, setSessionTimers]);
 
   const handleLogWalkout = async () => {
     if (!walkoutReason || walkoutCount <= 0) {
@@ -1038,7 +1209,12 @@ export default function Home() {
     bookingId?: string,
     discount?: 0 | 200 | 300,
     wob?: 'W' | 'O' | 'B',
-    vip?: boolean
+    vip_number?: number,
+    nationality?: 'Chinese' | 'Foreigner',
+    payment_method?: 'Cash' | 'Thai QR Code' | 'WeChat' | 'Alipay' | 'FX Cash (other than THB)',
+    addon_items?: AddonItem[],
+    addon_custom_amount?: number,
+    notes?: string
   ) => {
     setIsLoading(true);
     setError(null);
@@ -1081,7 +1257,12 @@ export default function Home() {
       // custom fields persisted if backend supports
       discount: discount || 0,
       wob: wob || 'W',
-      vip: !!vip
+      vip_number: vip_number || undefined,
+      nationality: nationality || 'Chinese',
+      payment_method: payment_method || 'Cash',
+      addon_items: addon_items || undefined,
+      addon_custom_amount: addon_custom_amount || undefined,
+      notes: notes || undefined
     };
 
     // Validation will be handled on the server side
@@ -1576,14 +1757,15 @@ export default function Home() {
         onClose={() => {
           setIsSessionModalOpen(false);
           setSelectedBookingForSession(null);
+          setSelectedTherapistForBooking(null);
         }}
         onConfirmSession={handleConfirmSession}
         therapists={therapists}
         rooms={rooms as Room[]}
-        preselectedTherapistId={selectedBookingForSession?.therapist_ids[0]}
+        preselectedTherapistId={selectedBookingForSession?.therapist_ids[0] || selectedTherapistForBooking?.id}
         bookingId={selectedBookingForSession?.id}
         bookingNote={selectedBookingForSession?.note || undefined}
-        bookingData={selectedBookingForSession || undefined}
+        bookingData={bookingForSessionRef.current || selectedBookingForSession || undefined}
       />
 
       {/* Booking Modal */}
@@ -1596,6 +1778,21 @@ export default function Home() {
         onConfirmBooking={handleConfirmBooking}
         therapist={selectedTherapistForBooking}
         allTherapists={therapists}
+      />
+
+      {/* Booking View/Edit Modal */}
+      <BookingViewModal
+        isOpen={isBookingViewModalOpen}
+        onClose={() => {
+          setIsBookingViewModalOpen(false);
+          setSelectedBookingForSession(null);
+        }}
+        onUpdateBooking={handleUpdateBooking}
+        onStartSession={handleStartSessionFromBooking}
+        onCancelBooking={handleCancelBooking}
+        booking={selectedBookingForSession}
+        therapists={therapists}
+        rooms={rooms}
       />
 
       {/* Expense Modal */}

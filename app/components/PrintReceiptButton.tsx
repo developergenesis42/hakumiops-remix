@@ -7,6 +7,7 @@ interface PrintReceiptButtonProps {
       name: string;
       duration: number;
       price: number;
+      payout: number;
     };
     therapists: Array<{ name: string }>;
     room: {
@@ -37,6 +38,7 @@ export default function PrintReceiptButton({ sessionData, className = '' }: Prin
         service: sessionData.service.name,
         duration: sessionData.service.duration,
         price: sessionData.service.price,
+        payout: sessionData.service.payout,
         therapist: sessionData.therapists.map(t => t.name).join(', '),
         room: sessionData.room.name,
         timestamp: new Date(sessionData.created_at).toLocaleString(),

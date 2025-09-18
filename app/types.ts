@@ -56,6 +56,7 @@ export interface Booking {
   end_time: string; // ISO timestamp
   status: BookingStatus;
   note: string | null;
+  room_id: string | null; // Optional room assignment
   created_at: string;
   updated_at: string;
 }
@@ -74,7 +75,17 @@ export interface Session {
   // Optional metadata
   discount?: number; // 0, 200, 300
   wob?: 'W' | 'O' | 'B'; // W=Walk-in, O=Online, B=Booking
-  vip?: boolean;
+  vip_number?: number; // VIP customer number (1-1000), null for non-VIP
+  nationality?: 'Chinese' | 'Foreigner'; // Session nationality
+  payment_method?: 'Cash' | 'Thai QR Code' | 'WeChat' | 'Alipay' | 'FX Cash (other than THB)'; // Payment method
+  cash_amount?: number; // Amount paid in THB cash
+  thai_qr_amount?: number; // Amount paid via Thai QR Code
+  wechat_amount?: number; // Amount paid via WeChat
+  alipay_amount?: number; // Amount paid via Alipay
+  fx_cash_amount?: number; // Amount paid in foreign currency cash
+  addon_items?: AddonItem[]; // Selected add-on items
+  addon_custom_amount?: number; // Custom add-on amount (0-3000)
+  notes?: string; // Session and customer notes
   created_at: string;
   updated_at: string;
 }
@@ -156,6 +167,12 @@ export interface FinancialSummary {
   shop_revenue: number;
   therapist_payouts: number;
   net_profit: number; // calculated: shop_revenue - shop_expenses
+  // Payment method breakdowns
+  cash_revenue: number; // THB cash only
+  thai_qr_revenue: number; // Thai QR Code payments
+  wechat_revenue: number; // WeChat payments
+  alipay_revenue: number; // Alipay payments
+  fx_cash_revenue: number; // Foreign currency cash
 }
 
 export interface TherapistFinancials {
@@ -180,6 +197,11 @@ export interface WalkoutSummary {
 // FORM TYPES
 // ============================================================================
 
+export interface AddonItem {
+  name: string;
+  price: number;
+}
+
 export interface CreateSessionForm {
   category: ServiceCategory;
   service_id: number;
@@ -188,13 +210,32 @@ export interface CreateSessionForm {
   booking_id?: string;
   discount?: number;
   wob?: 'W' | 'O' | 'B'; // W=Walk-in, O=Online, B=Booking
-  vip?: boolean;
+  vip_number?: number; // VIP customer number (1-1000)
+  nationality?: 'Chinese' | 'Foreigner'; // Session nationality
+  payment_method?: 'Cash' | 'Thai QR Code' | 'WeChat' | 'Alipay' | 'FX Cash (other than THB)'; // Payment method
+  cash_amount?: number; // Amount paid in THB cash
+  thai_qr_amount?: number; // Amount paid via Thai QR Code
+  wechat_amount?: number; // Amount paid via WeChat
+  alipay_amount?: number; // Amount paid via Alipay
+  fx_cash_amount?: number; // Amount paid in foreign currency cash
+  addon_items?: AddonItem[]; // Selected add-on items
+  addon_custom_amount?: number; // Custom add-on amount (0-3000)
+  notes?: string; // Session and customer notes
 }
 
 export interface CreateBookingForm {
   therapist_ids: string[];
   service_id: number;
   start_time: string; // ISO timestamp
+  note?: string;
+}
+
+export interface UpdateBookingForm {
+  serviceId: number;
+  therapistIds: string[];
+  startTime: string; // ISO timestamp string
+  endTime: string; // ISO timestamp string
+  roomId?: string;
   note?: string;
 }
 

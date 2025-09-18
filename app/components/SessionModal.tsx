@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Service, ServiceCategory, Room, Therapist, BookingWithDetails } from '../types';
+import { Service, ServiceCategory, Room, Therapist, BookingWithDetails, AddonItem } from '../types';
 import { usePrintNode } from '~/hooks/usePrintNode';
 
 // Utility function to round time to nearest 5-minute increment
@@ -18,6 +18,12 @@ const roundToNearestFiveMinutes = (date: Date): Date => {
   
   return roundedDate;
 };
+
+// Add-on items data
+const ADDON_ITEMS: AddonItem[] = [
+  { name: 'Item 1', price: 500 },
+  { name: 'Item 2', price: 1000 }
+];
 
 // Services data from the HTML version
 const SERVICES: Service[] = [
@@ -46,7 +52,12 @@ interface SessionModalProps {
     bookingId?: string;
     discount?: 0 | 200 | 300;
     wob?: 'W' | 'O' | 'B';
-    vip?: boolean;
+    vip_number?: number;
+    nationality?: 'Chinese' | 'Foreigner';
+    payment_method?: 'Cash' | 'Thai QR Code' | 'WeChat' | 'Alipay' | 'FX Cash (other than THB)';
+    addon_items?: AddonItem[];
+    addon_custom_amount?: number;
+    notes?: string;
   }) => void;
   therapists: Therapist[];
   rooms: Room[];
@@ -77,36 +88,59 @@ export default function SessionModal({
   const [printError, setPrintError] = useState<string | null>(null);
   const [discount, setDiscount] = useState<0 | 200 | 300>(0);
   const [wob, setWob] = useState<'W' | 'O' | 'B'>('W');
-  const [vip, setVip] = useState<boolean>(false);
+  const [vipNumber, setVipNumber] = useState<number | ''>('');
+  const [nationality, setNationality] = useState<'Chinese' | 'Foreigner'>('Chinese');
+  const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'Thai QR Code' | 'WeChat' | 'Alipay' | 'FX Cash (other than THB)'>('Cash');
+  const [selectedAddonItems, setSelectedAddonItems] = useState<string[]>([]);
+  const [customAddonAmount, setCustomAddonAmount] = useState<number | ''>('');
+  const [notes, setNotes] = useState<string>('');
   
   // PrintNode hook for automatic printing
   const { getDefaultPrinter, printReceipt } = usePrintNode();
 
   // Reset form when modal opens
   useEffect(() => {
+    
     if (isOpen) {
       setIsPrinting(false);
       setPrintError(null);
       setDiscount(0);
       setWob('W');
-      setVip(false);
+      setVipNumber('');
+      setNationality('Chinese');
+      setPaymentMethod('Cash');
+      setSelectedAddonItems([]);
+      setCustomAddonAmount('');
+      setNotes('');
       
       if (bookingId && bookingData) {
         // Opening from booking - pre-populate from booking data
         setIsFromBooking(true);
         const service = bookingData.service;
         
-        setSelectedCategory(service.category);
-        setSelectedServiceId(service.id);
-        setSelectedTherapist1Id(bookingData.therapist_ids[0]);
-        
-        if (bookingData.therapist_ids.length > 1) {
-          setSelectedTherapist2Id(bookingData.therapist_ids[1]);
-        } else {
-          setSelectedTherapist2Id('');
+        if (service) {
+          setSelectedCategory(service.category);
+          setSelectedServiceId(service.id);
         }
         
-        setSelectedRoomId('');
+        if (bookingData.therapist_ids && bookingData.therapist_ids.length > 0) {
+          setSelectedTherapist1Id(bookingData.therapist_ids[0]);
+          
+          if (bookingData.therapist_ids.length > 1) {
+            setSelectedTherapist2Id(bookingData.therapist_ids[1]);
+          } else {
+            setSelectedTherapist2Id('');
+          }
+        }
+        
+        // Auto-populate room if assigned in booking
+        setSelectedRoomId(bookingData.room_id || '');
+        
+        // Auto-populate booking note into notes field
+        setNotes(bookingData.note || '');
+        
+        // Set WOB to 'B' (Booking) since this is from a booking
+        setWob('B');
       } else {
         // Opening for new session
         setIsFromBooking(false);
@@ -118,6 +152,32 @@ export default function SessionModal({
       }
     }
   }, [isOpen, bookingId, bookingData, preselectedTherapistId]);
+
+  // Additional useEffect to handle booking data changes after modal is already open
+  useEffect(() => {
+    if (isOpen && bookingData) {
+      const service = bookingData.service;
+      
+      // 1. Set category and service
+      if (service) {
+        setSelectedCategory(service.category);
+        setSelectedServiceId(service.id);
+      }
+      
+      // 2. Set therapist
+      if (bookingData.therapist_ids && bookingData.therapist_ids.length > 0) {
+        setSelectedTherapist1Id(bookingData.therapist_ids[0]);
+        
+        if (bookingData.therapist_ids.length > 1) {
+          setSelectedTherapist2Id(bookingData.therapist_ids[1]);
+        } else {
+          setSelectedTherapist2Id('');
+        }
+      }
+      
+      setIsFromBooking(true);
+    }
+  }, [isOpen, bookingData]);
 
   // Get available therapists (only Available status)
   const availableTherapists = therapists.filter(t => t.status === 'Available');
@@ -139,10 +199,9 @@ export default function SessionModal({
       ? ['Shower', 'Large Shower', 'VIP Jacuzzi'] 
       : ['VIP Jacuzzi'];
     
-    return rooms.filter(r => 
-      r.status === 'Available' && 
-      compatibleTypes.includes(r.type)
-    );
+    // Include all compatible rooms, not just available ones
+    // This allows showing booked rooms even if they're not available
+    return rooms.filter(r => compatibleTypes.includes(r.type));
   }, [selectedServiceId, rooms]);
 
   const compatibleRooms = getCompatibleRooms();
@@ -207,7 +266,12 @@ export default function SessionModal({
         bookingId: bookingId,
         discount,
         wob,
-        vip
+        vip_number: vipNumber || undefined,
+        nationality,
+        payment_method: paymentMethod,
+        addon_items: selectedAddonItems.length > 0 ? ADDON_ITEMS.filter(item => selectedAddonItems.includes(item.name)) : undefined,
+        addon_custom_amount: customAddonAmount || undefined,
+        notes: notes || undefined
       });
       
       // Create rounded timestamp for the sales slip
@@ -247,7 +311,7 @@ export default function SessionModal({
         paymentMethod: 'Cash',
         discount: discount || 0,
         wob: wob || 'W',
-        vip: vip || false
+        vip_number: vipNumber || undefined
       };
       
       // Determine number of copies based on service category
@@ -255,7 +319,7 @@ export default function SessionModal({
       if (selectedService.category === '1 Lady') {
         copies = 2; // 2 copies for 1 lady service
       } else if (selectedService.category === '2 Ladies') {
-        copies = 4; // 4 copies for 2 ladies service
+        copies = 3; // 3 copies for 2 ladies service (1 for each lady + 1 for shop)
       }
       
       // Print the receipt automatically
@@ -283,6 +347,12 @@ export default function SessionModal({
   const selectedTherapist1 = selectedTherapist1Id ? therapists.find(t => t.id === selectedTherapist1Id) : null;
   const selectedTherapist2 = selectedTherapist2Id ? therapists.find(t => t.id === selectedTherapist2Id) : null;
   const selectedRoom = selectedRoomId ? rooms.find(r => r.id === selectedRoomId) : null;
+  
+  // Calculate add-on total
+  const addonTotal = selectedAddonItems.reduce((total, itemName) => {
+    const item = ADDON_ITEMS.find(i => i.name === itemName);
+    return total + (item ? item.price : 0);
+  }, 0) + (customAddonAmount || 0);
 
   if (!isOpen) return null;
 
@@ -302,6 +372,11 @@ export default function SessionModal({
           <h3 className="text-2xl font-bold text-white">
             {isFromBooking ? 'Start a Booked Session' : 'Create a New Session'}
           </h3>
+          {isFromBooking && (
+            <div className="text-sm text-blue-300 bg-blue-900/30 px-3 py-2 rounded-md">
+              📋 Information pre-populated from booking
+            </div>
+          )}
           
           {/* Booking Note Display */}
           {isFromBooking && bookingNote && (
@@ -438,17 +513,112 @@ export default function SessionModal({
               </select>
             </div>
             <div>
-              <label htmlFor="vip-select" className="block text-sm font-medium text-gray-300 mb-2">7. VIP</label>
+              <label htmlFor="vip-number-input" className="block text-sm font-medium text-gray-300 mb-2">7. VIP Number</label>
+              <input
+                id="vip-number-input"
+                type="number"
+                min="1"
+                max="1000"
+                value={vipNumber}
+                onChange={(e) => setVipNumber(e.target.value ? parseInt(e.target.value) : '')}
+                placeholder="Enter VIP number (1-1000)"
+                className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+              />
+            </div>
+          </div>
+
+          {/* Nationality, Payment Method */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label htmlFor="nationality-select" className="block text-sm font-medium text-gray-300 mb-2">8. Nationality</label>
               <select
-                id="vip-select"
-                value={vip ? 'yes' : 'no'}
-                onChange={(e) => setVip(e.target.value === 'yes')}
+                id="nationality-select"
+                value={nationality}
+                onChange={(e) => setNationality(e.target.value as 'Chinese' | 'Foreigner')}
                 className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
               >
-                <option value="no">No</option>
-                <option value="yes">Yes</option>
+                <option value="Chinese">Chinese</option>
+                <option value="Foreigner">Foreigner</option>
               </select>
             </div>
+            <div>
+              <label htmlFor="payment-method-select" className="block text-sm font-medium text-gray-300 mb-2">9. Payment Method</label>
+              <select
+                id="payment-method-select"
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value as 'Cash' | 'Thai QR Code' | 'WeChat' | 'Alipay' | 'FX Cash (other than THB)')}
+                className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+              >
+                <option value="Cash">Cash</option>
+                <option value="Thai QR Code">Thai QR Code</option>
+                <option value="WeChat">WeChat</option>
+                <option value="Alipay">Alipay</option>
+                <option value="FX Cash (other than THB)">FX Cash (other than THB)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Add-on Section */}
+          <div>
+            <div className="block text-sm font-medium text-gray-300 mb-3">10. Add-ons</div>
+            <div className="space-y-3">
+              {/* Add-on Items */}
+              <div>
+                <p className="text-sm text-gray-400 mb-2">Select add-on items:</p>
+                <div className="space-y-2">
+                  {ADDON_ITEMS.map((item) => (
+                    <label key={item.name} htmlFor={`addon-${item.name}`} className="flex items-center space-x-3 cursor-pointer">
+                      <input
+                        id={`addon-${item.name}`}
+                        type="checkbox"
+                        checked={selectedAddonItems.includes(item.name)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedAddonItems(prev => [...prev, item.name]);
+                          } else {
+                            setSelectedAddonItems(prev => prev.filter(name => name !== item.name));
+                          }
+                        }}
+                        className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                      />
+                      <span className="text-white">
+                        {item.name}: ฿{item.price}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              
+              {/* Custom Add-on Amount */}
+              <div>
+                <label htmlFor="custom-addon-amount" className="block text-sm text-gray-400 mb-2">Custom amount (THB):</label>
+                <input
+                  id="custom-addon-amount"
+                  type="number"
+                  min="0"
+                  max="3000"
+                  value={customAddonAmount}
+                  onChange={(e) => setCustomAddonAmount(e.target.value ? parseInt(e.target.value) : '')}
+                  placeholder="Enter custom amount (0-3000)"
+                  className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Notes Section */}
+          <div>
+            <label htmlFor="notes-input" className="block text-sm font-medium text-gray-300 mb-2">
+              11. Notes
+            </label>
+            <input
+              id="notes-input"
+              type="text"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Enter notes about the session or customer..."
+              className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+            />
           </div>
 
           {/* Review Summary */}
@@ -466,6 +636,11 @@ export default function SessionModal({
                 <p className="text-sm text-gray-400 mt-1">
                   Duration: {selectedService.duration} min | Price: ฿{Math.max(0, selectedService.price - (discount || 0))} (−฿{discount}) | Payout: ฿{selectedService.payout}
                 </p>
+                {addonTotal > 0 && (
+                  <p className="text-sm text-blue-300 mt-1">
+                    Add-ons: ฿{addonTotal} {selectedAddonItems.length > 0 && `(${selectedAddonItems.join(', ')})`} {customAddonAmount && `+ Custom: ฿${customAddonAmount}`}
+                  </p>
+                )}
               </div>
             ) : (
               <p className="text-gray-400">Please complete all selections</p>

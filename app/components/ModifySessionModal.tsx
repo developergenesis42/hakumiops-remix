@@ -43,6 +43,7 @@ interface ModifySessionModalProps {
     sessionId: string;
     newServiceId: number;
     newRoomId: string;
+    newTherapistIds?: string[];
   }) => void;
   session: SessionWithDetails | null;
   therapists: Therapist[];
@@ -59,6 +60,8 @@ export default function ModifySessionModal({
 }: ModifySessionModalProps) {
   const [selectedServiceId, setSelectedServiceId] = useState<number | ''>('');
   const [selectedRoomId, setSelectedRoomId] = useState<string>('');
+  const [selectedTherapist1Id, setSelectedTherapist1Id] = useState<string>('');
+  const [selectedTherapist2Id, setSelectedTherapist2Id] = useState<string>('');
   const [isPrinting, setIsPrinting] = useState(false);
   const [printError, setPrintError] = useState<string | null>(null);
   
@@ -72,6 +75,9 @@ export default function ModifySessionModal({
       setPrintError(null);
       setSelectedServiceId(session.service_id);
       setSelectedRoomId(session.room_id || '');
+      // Initialize therapist selections
+      setSelectedTherapist1Id(session.therapist_ids[0] || '');
+      setSelectedTherapist2Id(session.therapist_ids[1] || '');
     }
   }, [isOpen, session]);
 
@@ -80,6 +86,22 @@ export default function ModifySessionModal({
 
   // Get available rooms (excluding current room)
   const availableRooms = rooms.filter(r => r.status === 'Available' || r.id === session?.room_id);
+
+  // Get available therapists (Available status OR currently in this session)
+  const availableTherapists = therapists.filter(t => 
+    t.status === 'Available' || (session?.therapist_ids.includes(t.id))
+  );
+
+  // Get selected service category for therapist validation
+  const selectedService = SERVICES.find(s => s.id === selectedServiceId);
+  const selectedCategory = selectedService?.category;
+
+  // Clear second therapist when service category changes from "2 Ladies" to something else
+  useEffect(() => {
+    if (selectedCategory !== '2 Ladies' && selectedTherapist2Id) {
+      setSelectedTherapist2Id('');
+    }
+  }, [selectedCategory, selectedTherapist2Id]);
 
   // Calculate changes
   const newService = SERVICES.find(s => s.id === selectedServiceId);
@@ -97,7 +119,19 @@ export default function ModifySessionModal({
 
   // Validation
   const isFormValid = () => {
-    return selectedServiceId && selectedRoomId;
+    if (!selectedServiceId || !selectedRoomId) return false;
+    
+    // Validate therapist selections based on service category
+    if (selectedCategory === '1 Lady' || selectedCategory === 'Couple') {
+      return selectedTherapist1Id && !selectedTherapist2Id;
+    }
+    
+    if (selectedCategory === '2 Ladies') {
+      return selectedTherapist1Id && selectedTherapist2Id && 
+             selectedTherapist1Id !== selectedTherapist2Id;
+    }
+    
+    return false;
   };
 
   const handleConfirm = async () => {
@@ -107,11 +141,18 @@ export default function ModifySessionModal({
       setIsPrinting(true);
       setPrintError(null);
 
+      // Prepare therapist IDs based on service category
+      const newTherapistIds = [selectedTherapist1Id];
+      if (selectedCategory === '2 Ladies') {
+        newTherapistIds.push(selectedTherapist2Id);
+      }
+
       // Call the original confirm handler first (modify session)
       onConfirmModify({
         sessionId: session.id,
         newServiceId: selectedServiceId as number,
-        newRoomId: selectedRoomId
+        newRoomId: selectedRoomId,
+        newTherapistIds
       });
 
       // Get the new service and room data for printing
@@ -133,13 +174,19 @@ export default function ModifySessionModal({
         throw new Error('No printer available. Please check your printer setup.');
       }
 
+      // Get new therapist names for receipt
+      const newTherapistNames = newTherapistIds
+        .map(id => therapists.find(t => t.id === id)?.name || 'Unknown')
+        .join(' & ');
+
       const receiptData = {
         sessionId: session.id,
         clientName: 'Walk-in Customer', // Default client name
         service: newService.name,
         duration: newService.duration,
         price: newService.price,
-        therapist: getTherapistNames(),
+        payout: newService.payout,
+        therapist: newTherapistNames,
         room: newRoom.name,
         timestamp: roundedTime.toLocaleString(),
         paymentMethod: 'Cash'
@@ -182,11 +229,52 @@ export default function ModifySessionModal({
         <div className="bg-gray-800 rounded-lg p-8 w-full max-w-lg space-y-6 modal-fade-in">
           <h3 className="text-2xl font-bold text-white">Modify In-Progress Session</h3>
           
-          {/* Therapist Display */}
-          <div>
-            <label htmlFor="therapist-display" className="block text-sm font-medium text-gray-300 mb-2">Therapist(s)</label>
-            <div id="therapist-display" className="w-full bg-gray-700 text-gray-400 border-gray-600 rounded-md p-2">
-              {getTherapistNames()}
+          {/* Therapist Selection */}
+          <div className="space-y-4">
+            <h4 className="text-lg font-semibold text-white">Change Therapists</h4>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="modify-therapist1-select" className="block text-sm font-medium text-gray-300 mb-2">
+                  Therapist 1
+                </label>
+                <select
+                  id="modify-therapist1-select"
+                  value={selectedTherapist1Id}
+                  onChange={(e) => setSelectedTherapist1Id(e.target.value)}
+                  className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                >
+                  <option value="">Select therapist</option>
+                  {availableTherapists.map(therapist => (
+                    <option key={therapist.id} value={therapist.id}>
+                      {therapist.name} {session?.therapist_ids.includes(therapist.id) ? '(Current)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              {selectedCategory === '2 Ladies' && (
+                <div>
+                  <label htmlFor="modify-therapist2-select" className="block text-sm font-medium text-gray-300 mb-2">
+                    Therapist 2
+                  </label>
+                  <select
+                    id="modify-therapist2-select"
+                    value={selectedTherapist2Id}
+                    onChange={(e) => setSelectedTherapist2Id(e.target.value)}
+                    className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                  >
+                    <option value="">Select therapist</option>
+                    {availableTherapists
+                      .filter(t => t.id !== selectedTherapist1Id) // Prevent duplicate selection
+                      .map(therapist => (
+                        <option key={therapist.id} value={therapist.id}>
+                          {therapist.name} {session?.therapist_ids.includes(therapist.id) ? '(Current)' : ''}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
             </div>
           </div>
 

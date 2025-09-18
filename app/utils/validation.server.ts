@@ -191,8 +191,36 @@ export function validateSession(session: Partial<Session>): ValidationResult {
     }
   }
 
-  if (session.vip !== undefined && typeof session.vip !== 'boolean') {
-    errors.push({ field: 'vip', message: 'VIP must be a boolean' });
+  if (session.vip_number !== undefined) {
+    if (session.vip_number !== null && (session.vip_number < 1 || session.vip_number > 1000)) {
+      errors.push({ field: 'vip_number', message: 'VIP number must be between 1 and 1000' });
+    }
+  }
+
+  if (session.nationality !== undefined) {
+    if (!['Chinese', 'Foreigner'].includes(session.nationality)) {
+      errors.push({ field: 'nationality', message: 'Nationality must be Chinese or Foreigner' });
+    }
+  }
+
+  if (session.payment_method !== undefined) {
+    if (!['Cash', 'Thai QR Code', 'WeChat', 'Alipay', 'FX Cash (other than THB)'].includes(session.payment_method)) {
+      errors.push({ field: 'payment_method', message: 'Payment method must be one of: Cash, Thai QR Code, WeChat, Alipay, FX Cash (other than THB)' });
+    }
+  }
+
+  if (session.addon_custom_amount !== undefined) {
+    if (session.addon_custom_amount < 0 || session.addon_custom_amount > 3000) {
+      errors.push({ field: 'addon_custom_amount', message: 'Custom add-on amount must be between 0 and 3000' });
+    }
+  }
+
+  if (session.notes !== undefined && session.notes !== null) {
+    if (typeof session.notes !== 'string') {
+      errors.push({ field: 'notes', message: 'Notes must be a string' });
+    } else if (session.notes.length > 1000) {
+      errors.push({ field: 'notes', message: 'Notes must be less than 1000 characters' });
+    }
   }
 
   return {

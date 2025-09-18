@@ -10,6 +10,8 @@ import type {
   Walkout,
   DailyReport,
   SessionWithDetails,
+  BookingWithDetails,
+  UpdateBookingForm,
   FinancialSummary
 } from "~/types";
 
@@ -381,6 +383,54 @@ export async function getBookings(): Promise<{ data: Booking[]; error: string | 
   }
 }
 
+export async function getBookingsWithDetails(): Promise<{ data: BookingWithDetails[]; error: string | null }> {
+  try {
+    const { supabase } = createClient();
+    
+    // First get all bookings
+    const { data: bookings, error: bookingsError } = await supabase
+      .from("bookings")
+      .select("*")
+      .order("start_time", { ascending: true });
+
+    if (bookingsError) throw bookingsError;
+    if (!bookings) return { data: [], error: null };
+
+    // Get all services
+    const { data: services, error: servicesError } = await supabase
+      .from("services")
+      .select("*");
+
+    if (servicesError) throw servicesError;
+
+    // Get all therapists
+    const { data: therapists, error: therapistsError } = await supabase
+      .from("therapists")
+      .select("*");
+
+    if (therapistsError) throw therapistsError;
+
+    // Transform bookings to include service and therapist details
+    const bookingsWithDetails = bookings.map(booking => {
+      const service = services?.find(s => s.id === booking.service_id);
+      const bookingTherapists = therapists?.filter(t => booking.therapist_ids.includes(t.id)) || [];
+      
+      return {
+        ...booking,
+        service,
+        therapists: bookingTherapists
+      };
+    });
+
+    return { data: bookingsWithDetails, error: null };
+  } catch (error) {
+    return { 
+      data: [], 
+      error: error instanceof Error ? error.message : 'Failed to fetch bookings with details' 
+    };
+  }
+}
+
 export async function createBooking(booking: Omit<Booking, 'id' | 'created_at' | 'updated_at'>): Promise<{ data: Booking | null; error: string | null }> {
   try {
     const { supabase } = createClient();
@@ -417,19 +467,65 @@ export async function deleteBooking(id: string): Promise<{ error: string | null 
   }
 }
 
-export async function updateBooking(id: string, updates: Partial<Omit<Booking, 'id' | 'created_at' | 'updated_at'>>): Promise<{ data: Booking | null; error: string | null }> {
+export async function updateBooking(id: string, updates: UpdateBookingForm): Promise<{ data: Booking | null; error: string | null }> {
   try {
+    console.log('updateBooking called with:', { id, updates });
+    
     const { supabase } = createClient();
+    
+    // Convert camelCase field names to snake_case for database
+    const dbUpdates: Partial<Booking> = {};
+    
+    if (updates.serviceId !== undefined) {
+      dbUpdates.service_id = updates.serviceId;
+    }
+    
+    if (updates.therapistIds !== undefined) {
+      // Ensure it's an array of strings (UUIDs)
+      dbUpdates.therapist_ids = Array.isArray(updates.therapistIds) 
+        ? updates.therapistIds.map(id => String(id))
+        : [String(updates.therapistIds)];
+    }
+    
+    if (updates.startTime !== undefined) {
+      // startTime is already an ISO string from the frontend
+      dbUpdates.start_time = updates.startTime;
+    }
+    
+    if (updates.endTime !== undefined) {
+      // endTime is already an ISO string from the frontend
+      dbUpdates.end_time = updates.endTime;
+    }
+    
+    if (updates.roomId !== undefined) {
+      dbUpdates.room_id = updates.roomId;
+    }
+    
+    if (updates.note !== undefined) {
+      dbUpdates.note = updates.note;
+    }
+    
+    // Note: status updates are not part of UpdateBookingForm
+    // If needed, they should be handled separately
+    
+    console.log('Database updates (snake_case):', dbUpdates);
+    
     const { data, error } = await supabase
       .from("bookings")
-      .update(updates)
+      .update(dbUpdates)
       .eq("id", id)
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase update error:', error);
+      throw error;
+    }
+    
+    console.log('Update successful:', data);
     return { data, error: null };
   } catch (error) {
+    console.error('updateBooking error:', error);
     return { 
       data: null, 
       error: error instanceof Error ? error.message : 'Failed to update booking' 
@@ -649,7 +745,7 @@ export async function calculateFinancials(date?: string): Promise<{ data: Financ
     // Get completed sessions for the day
     const { data: sessions, error: sessionsError } = await supabase
       .from("sessions")
-      .select("price, payout")
+      .select("price, payout, payment_method")
       .eq("status", "Completed")
       .gte("created_at", `${targetDate}T00:00:00Z`)
       .lt("created_at", `${targetDate}T23:59:59Z`);
@@ -680,6 +776,18 @@ export async function calculateFinancials(date?: string): Promise<{ data: Financ
     const therapistExpensesTotal = (therapistExpenses || []).reduce((sum, expense) => sum + Number(expense.amount), 0);
     const shopExpensesTotal = (shopExpenses || []).reduce((sum, expense) => sum + Number(expense.amount), 0);
 
+    // Calculate payment method breakdowns based on payment_method field
+    const cashRevenue = (sessions || []).reduce((sum, session) => 
+      session.payment_method === 'Cash' ? sum + Number(session.price) : sum, 0);
+    const thaiQrRevenue = (sessions || []).reduce((sum, session) => 
+      session.payment_method === 'Thai QR Code' ? sum + Number(session.price) : sum, 0);
+    const wechatRevenue = (sessions || []).reduce((sum, session) => 
+      session.payment_method === 'WeChat' ? sum + Number(session.price) : sum, 0);
+    const alipayRevenue = (sessions || []).reduce((sum, session) => 
+      session.payment_method === 'Alipay' ? sum + Number(session.price) : sum, 0);
+    const fxCashRevenue = (sessions || []).reduce((sum, session) => 
+      session.payment_method === 'FX Cash (other than THB)' ? sum + Number(session.price) : sum, 0);
+
     const shopRevenue = sessionRevenue - sessionPayouts + therapistExpensesTotal - shopExpensesTotal;
     const totalRevenue = sessionRevenue + therapistExpensesTotal;
     const netProfit = shopRevenue;
@@ -689,7 +797,13 @@ export async function calculateFinancials(date?: string): Promise<{ data: Financ
         total_revenue: totalRevenue,
         shop_revenue: shopRevenue,
         therapist_payouts: sessionPayouts,
-        net_profit: netProfit
+        net_profit: netProfit,
+        // Payment method breakdowns
+        cash_revenue: cashRevenue,
+        thai_qr_revenue: thaiQrRevenue,
+        wechat_revenue: wechatRevenue,
+        alipay_revenue: alipayRevenue,
+        fx_cash_revenue: fxCashRevenue
       },
       error: null
     };
@@ -699,7 +813,12 @@ export async function calculateFinancials(date?: string): Promise<{ data: Financ
         total_revenue: 0,
         shop_revenue: 0,
         therapist_payouts: 0,
-        net_profit: 0
+        net_profit: 0,
+        cash_revenue: 0,
+        thai_qr_revenue: 0,
+        wechat_revenue: 0,
+        alipay_revenue: 0,
+        fx_cash_revenue: 0
       }, 
       error: error instanceof Error ? error.message : 'Failed to calculate financials' 
     };

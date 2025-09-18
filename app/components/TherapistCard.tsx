@@ -181,17 +181,33 @@ export default function TherapistCard({
         hour12: false
       });
       
+      // Get room abbreviation
+      const room = rooms.find(r => r.id === booking.room_id);
+      const roomAbbr = room ? `R${room.name.match(/\d+/)?.[0] || ''}` : 'TBD';
+      
+      // Truncate service name to 12 chars
+      const serviceShort = service.name.length > 12 ? 
+        service.name.substring(0, 12) : service.name;
+      
+      // Show notes (truncated to 20 chars if too long)
+      const notes = booking.note ? 
+        (booking.note.length > 20 ? 
+          `"${booking.note.substring(0, 20)}..."` : 
+          `"${booking.note}"`) : 
+        'No notes';
+      
       return `
         <div 
           data-booking-id="${booking.id}" 
-          class="booking-item bg-gray-800/50 text-xs p-2 rounded-md flex justify-between items-center hover:bg-gray-700/50 transition-colors"
+          class="booking-item bg-gray-800/50 text-xs p-2 rounded-md border border-gray-700 flex justify-between items-center hover:bg-gray-700/50 transition-colors mb-1"
         >
           <div 
-            class="flex-1 cursor-pointer"
+            class="flex-1 cursor-pointer flex items-center justify-between"
             onclick="window.bookingClickHandler && window.bookingClickHandler('${booking.id}')"
           >
-            <span>${startTime} - ${service.name.substring(0, 15)}...</span>
+            <span class="font-mono">${startTime} ${serviceShort} ${roomAbbr}</span>
             <span class="text-green-400 ml-2">▶</span>
+            <span class="text-gray-300 text-xs ml-2">${notes}</span>
           </div>
           <button 
             data-booking-id="${booking.id}"
