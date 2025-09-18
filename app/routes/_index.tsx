@@ -352,8 +352,19 @@ export default function Home() {
     therapistIds: string[];
     roomId: string;
     bookingId?: string;
+    discount?: 0 | 200 | 300;
+    wob?: 'W' | 'O' | 'B';
+    vip?: boolean;
   }) => {
-    startSession(sessionData.serviceId, sessionData.therapistIds, sessionData.roomId, sessionData.bookingId);
+    startSession(
+      sessionData.serviceId,
+      sessionData.therapistIds,
+      sessionData.roomId,
+      sessionData.bookingId,
+      sessionData.discount,
+      sessionData.wob,
+      sessionData.vip
+    );
   };
 
   const handleConfirmBooking = (bookingData: {
@@ -1020,7 +1031,15 @@ export default function Home() {
   };
 
   // Session Management Functions
-  const startSession = async (serviceId: number, therapistIds: string[], roomId: string, bookingId?: string) => {
+  const startSession = async (
+    serviceId: number,
+    therapistIds: string[],
+    roomId: string,
+    bookingId?: string,
+    discount?: 0 | 200 | 300,
+    wob?: 'W' | 'O' | 'B',
+    vip?: boolean
+  ) => {
     setIsLoading(true);
     setError(null);
 
@@ -1057,8 +1076,12 @@ export default function Home() {
       duration: service.duration,
       start_time: null,
       end_time: null,
-      price: service.price,
-      payout: service.payout
+      price: Math.max(0, service.price - (discount || 0)),
+      payout: service.payout,
+      // custom fields persisted if backend supports
+      discount: discount || 0,
+      wob: wob || 'W',
+      vip: !!vip
     };
 
     // Validation will be handled on the server side

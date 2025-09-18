@@ -44,6 +44,9 @@ interface SessionModalProps {
     therapistIds: string[];
     roomId: string;
     bookingId?: string;
+    discount?: 0 | 200 | 300;
+    wob?: 'W' | 'O' | 'B';
+    vip?: boolean;
   }) => void;
   therapists: Therapist[];
   rooms: Room[];
@@ -72,6 +75,9 @@ export default function SessionModal({
   const [isFromBooking, setIsFromBooking] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
   const [printError, setPrintError] = useState<string | null>(null);
+  const [discount, setDiscount] = useState<0 | 200 | 300>(0);
+  const [wob, setWob] = useState<'W' | 'O' | 'B'>('W');
+  const [vip, setVip] = useState<boolean>(false);
   
   // PrintNode hook for automatic printing
   const { getDefaultPrinter, printReceipt } = usePrintNode();
@@ -81,6 +87,9 @@ export default function SessionModal({
     if (isOpen) {
       setIsPrinting(false);
       setPrintError(null);
+      setDiscount(0);
+      setWob('W');
+      setVip(false);
       
       if (bookingId && bookingData) {
         // Opening from booking - pre-populate from booking data
@@ -195,7 +204,10 @@ export default function SessionModal({
         serviceId: selectedServiceId as number,
         therapistIds,
         roomId: selectedRoomId,
-        bookingId: bookingId
+        bookingId: bookingId,
+        discount,
+        wob,
+        vip
       });
       
       // Create rounded timestamp for the sales slip
@@ -214,18 +226,40 @@ export default function SessionModal({
         clientName: 'Walk-in Customer',
         service: selectedService.name,
         duration: selectedService.duration,
-        price: selectedService.price,
+        price: Math.max(0, selectedService.price - (discount || 0)),
+        payout: selectedService.payout,
         therapist: [
           selectedTherapist1.name,
           ...(selectedTherapist2 ? [selectedTherapist2.name] : [])
         ].join(', '),
         room: selectedRoom.name,
+        startTime: roundedTime.toLocaleTimeString('th-TH', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: false 
+        }),
+        endTime: new Date(roundedTime.getTime() + selectedService.duration * 60000).toLocaleTimeString('th-TH', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: false 
+        }),
         timestamp: roundedTime.toLocaleString(),
-        paymentMethod: 'Cash'
+        paymentMethod: 'Cash',
+        discount: discount || 0,
+        wob: wob || 'W',
+        vip: vip || false
       };
       
+      // Determine number of copies based on service category
+      let copies = 1;
+      if (selectedService.category === '1 Lady') {
+        copies = 2; // 2 copies for 1 lady service
+      } else if (selectedService.category === '2 Ladies') {
+        copies = 4; // 4 copies for 2 ladies service
+      }
+      
       // Print the receipt automatically
-      await printReceipt(defaultPrinter.id, receiptData);
+      await printReceipt(defaultPrinter.id, receiptData, copies);
       
       // Close modal after successful printing
       onClose();
@@ -375,6 +409,48 @@ export default function SessionModal({
             </select>
           </div>
 
+          {/* Discount, WOB, VIP */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div>
+              <label htmlFor="discount-select" className="block text-sm font-medium text-gray-300 mb-2">5. Discount</label>
+              <select
+                id="discount-select"
+                value={discount}
+                onChange={(e) => setDiscount((Number(e.target.value) as 0 | 200 | 300) || 0)}
+                className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+              >
+                <option value={0}>No discount</option>
+                <option value={200}>฿200</option>
+                <option value={300}>฿300</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="wob-select" className="block text-sm font-medium text-gray-300 mb-2">6. WOB</label>
+              <select
+                id="wob-select"
+                value={wob}
+                onChange={(e) => setWob(e.target.value as 'W' | 'O' | 'B')}
+                className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+              >
+                <option value="W">W - Walk-in</option>
+                <option value="O">O - Online</option>
+                <option value="B">B - Booking</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="vip-select" className="block text-sm font-medium text-gray-300 mb-2">7. VIP</label>
+              <select
+                id="vip-select"
+                value={vip ? 'yes' : 'no'}
+                onChange={(e) => setVip(e.target.value === 'yes')}
+                className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+              >
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </div>
+          </div>
+
           {/* Review Summary */}
           <div className="bg-gray-900 p-4 rounded-md text-center">
             {selectedService && selectedTherapist1 && selectedRoom ? (
@@ -388,7 +464,7 @@ export default function SessionModal({
                   in <span className="font-bold">{selectedRoom.name}</span>
                 </p>
                 <p className="text-sm text-gray-400 mt-1">
-                  Duration: {selectedService.duration} min | Price: ฿{selectedService.price} | Payout: ฿{selectedService.payout}
+                  Duration: {selectedService.duration} min | Price: ฿{Math.max(0, selectedService.price - (discount || 0))} (−฿{discount}) | Payout: ฿{selectedService.payout}
                 </p>
               </div>
             ) : (

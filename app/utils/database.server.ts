@@ -10,9 +10,6 @@ import type {
   Walkout,
   DailyReport,
   SessionWithDetails,
-  BookingWithDetails,
-  TherapistWithStats,
-  RoomWithSession,
   FinancialSummary
 } from "~/types";
 
@@ -41,7 +38,7 @@ export async function getTherapists(): Promise<{ data: Therapist[]; error: strin
     // Transform the data to match the Therapist interface
     const transformedData = (data || []).map(therapist => ({
       ...therapist,
-      expenses: therapist.therapist_expenses?.map((expense: any) => ({
+      expenses: therapist.therapist_expenses?.map((expense: { id: string; item_name: string; amount: number }) => ({
         id: expense.id,
         name: expense.item_name,
         amount: expense.amount
@@ -77,7 +74,7 @@ export async function getAllTherapists(): Promise<{ data: Therapist[]; error: st
     // Transform the data to match the Therapist interface
     const transformedData = (data || []).map(therapist => ({
       ...therapist,
-      expenses: therapist.therapist_expenses?.map((expense: any) => ({
+      expenses: therapist.therapist_expenses?.map((expense: { id: string; item_name: string; amount: number }) => ({
         id: expense.id,
         name: expense.item_name,
         amount: expense.amount
@@ -114,7 +111,7 @@ export async function getTherapistById(id: string): Promise<{ data: Therapist | 
     // Transform the data to match the Therapist interface
     const transformedData = data ? {
       ...data,
-      expenses: data.therapist_expenses?.map((expense: any) => ({
+      expenses: data.therapist_expenses?.map((expense: { id: string; item_name: string; amount: number }) => ({
         id: expense.id,
         name: expense.item_name,
         amount: expense.amount
@@ -713,7 +710,7 @@ export async function calculateFinancials(date?: string): Promise<{ data: Financ
 // MONTHLY REPORT OPERATIONS
 // ============================================================================
 
-export async function getMonthlyData(month: string): Promise<{ data: any; error: string | null }> {
+export async function getMonthlyData(month: string): Promise<{ data: Record<string, unknown> | null; error: string | null }> {
   try {
     const { supabase } = createClient();
     
@@ -795,13 +792,13 @@ export async function getMonthlyData(month: string): Promise<{ data: any; error:
         );
         
         // Get expenses for this therapist in this month
-        const therapistExpenses = (therapistExpenses || []).filter(expense => 
+        const therapistExpensesFiltered = (therapistExpenses || []).filter((expense: { id: string; item_name: string; amount: number; therapist_id: string }) => 
           expense.therapist_id === therapist.id
         );
         
-        if (therapistSessions.length > 0 || therapistExpenses.length > 0) {
-          const grossPayout = therapistSessions.reduce((sum, session) => sum + Number(session.payout || 0), 0);
-          const expenses = therapistExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+        if (therapistSessions.length > 0 || therapistExpensesFiltered.length > 0) {
+          const grossPayout = therapistSessions.reduce((sum: number, session: { payout: number }) => sum + Number(session.payout || 0), 0);
+          const expenses = therapistExpensesFiltered.reduce((sum: number, expense: { amount: number }) => sum + Number(expense.amount || 0), 0);
           const netPayout = grossPayout - expenses;
           
           // Calculate hours (simplified - using check_in/check_out if available)

@@ -1,6 +1,5 @@
 import { json } from "@remix-run/node";
 import { createDailyReport, getDailyReports } from "~/utils/database.server";
-import type { DailyReport } from "~/types";
 
 export async function loader() {
   try {

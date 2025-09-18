@@ -77,14 +77,12 @@ export default function ModifySessionModal({
 
   // Get current service and room
   const currentService = SERVICES.find(s => s.id === session?.service_id);
-  const currentRoom = rooms.find(r => r.id === session?.room_id);
 
   // Get available rooms (excluding current room)
   const availableRooms = rooms.filter(r => r.status === 'Available' || r.id === session?.room_id);
 
   // Calculate changes
   const newService = SERVICES.find(s => s.id === selectedServiceId);
-  const newRoom = rooms.find(r => r.id === selectedRoomId);
 
   const priceDiff = newService && currentService ? newService.price - currentService.price : 0;
   const durationDiff = newService && currentService ? newService.duration - currentService.duration : 0;
@@ -186,8 +184,8 @@ export default function ModifySessionModal({
           
           {/* Therapist Display */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Therapist(s)</label>
-            <div className="w-full bg-gray-700 text-gray-400 border-gray-600 rounded-md p-2">
+            <label htmlFor="therapist-display" className="block text-sm font-medium text-gray-300 mb-2">Therapist(s)</label>
+            <div id="therapist-display" className="w-full bg-gray-700 text-gray-400 border-gray-600 rounded-md p-2">
               {getTherapistNames()}
             </div>
           </div>

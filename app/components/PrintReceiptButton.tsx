@@ -1,4 +1,3 @@
-import React from 'react';
 import { usePrintNode } from '~/hooks/usePrintNode';
 
 interface PrintReceiptButtonProps {

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useCallback } from "react";
 
 type Props = {
   isOpen: boolean;
@@ -17,24 +17,24 @@ export default function Popup({
 }: Props) {
   const popupRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        popupRef.current &&
-        !popupRef.current.contains(event.target as Node) &&
-        !(buttonRef.current && buttonRef.current.contains(event.target as Node))
-      ) {
-        setIsOpen(!isOpen);
-      }
-    };
+  const handleClickOutside = useCallback((event: MouseEvent) => {
+    if (
+      popupRef.current &&
+      !popupRef.current.contains(event.target as Node) &&
+      !(buttonRef.current && buttonRef.current.contains(event.target as Node))
+    ) {
+      setIsOpen(!isOpen);
+    }
+  }, [setIsOpen, isOpen, buttonRef]);
 
+  useEffect(() => {
     if (isOpen) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isOpen, buttonRef]);
+  }, [isOpen, handleClickOutside]);
 
   if (!isOpen) return null;
 

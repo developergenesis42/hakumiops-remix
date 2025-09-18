@@ -1,3 +1,4 @@
+/* eslint-disable no-undef, no-unused-vars */
 // Simple test script to verify Supabase database connection
 // Run with: node test-db-connection.js
 

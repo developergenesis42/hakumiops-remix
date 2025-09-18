@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 interface EndOfDayModalProps {
   isOpen: boolean;
@@ -33,7 +33,7 @@ export default function EndOfDayModal({ isOpen, onClose, onConfirmEndOfDay }: En
           <div className="text-6xl mb-4">🌅</div>
           <h3 className="text-2xl font-bold text-white mb-2">End of Day Confirmation</h3>
           <p className="text-gray-400">
-            Are you sure you want to end the day? This will save today's final report to history 
+            Are you sure you want to end the day? This will save today&apos;s final report to history 
             and reset the dashboard for the next day. This action cannot be undone.
           </p>
         </div>
@@ -45,10 +45,10 @@ export default function EndOfDayModal({ isOpen, onClose, onConfirmEndOfDay }: En
             <div className="text-sm text-yellow-200">
               <p className="font-semibold mb-2">This will:</p>
               <ul className="list-disc list-inside space-y-1 text-yellow-300">
-                <li>Save today's final report to history</li>
-                <li>Reset all therapist statuses to "Rostered"</li>
+                <li>Save today&apos;s final report to history</li>
+                <li>Reset all therapist statuses to &quot;Rostered&quot;</li>
                 <li>Clear all active sessions</li>
-                <li>Reset all rooms to "Available"</li>
+                <li>Reset all rooms to &quot;Available&quot;</li>
                 <li>Clear walkouts and bookings</li>
                 <li>Reset financial counters</li>
               </ul>

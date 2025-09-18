@@ -1,7 +1,7 @@
 import { json } from "@remix-run/node";
 import { calculateFinancials } from "~/utils/database.server";
 
-export async function loader({ request }: { request: Request }) {
+export async function loader() {
   try {
     const { data, error } = await calculateFinancials();
     

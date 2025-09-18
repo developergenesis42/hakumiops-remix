@@ -71,6 +71,10 @@ export interface Session {
   duration: number; // in minutes
   price: number;
   payout: number;
+  // Optional metadata
+  discount?: number; // 0, 200, 300
+  wob?: 'W' | 'O' | 'B'; // W=Walk-in, O=Online, B=Booking
+  vip?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -105,7 +109,7 @@ export interface DailyReport {
   therapist_payouts: number;
   session_count: number;
   walkout_count: number;
-  report_data: Record<string, any>; // JSONB data
+  report_data: Record<string, unknown>; // JSONB data
   created_at: string;
 }
 
@@ -182,6 +186,9 @@ export interface CreateSessionForm {
   therapist_ids: string[];
   room_id: string;
   booking_id?: string;
+  discount?: number;
+  wob?: 'W' | 'O' | 'B'; // W=Walk-in, O=Online, B=Booking
+  vip?: boolean;
 }
 
 export interface CreateBookingForm {

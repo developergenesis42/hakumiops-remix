@@ -1,5 +1,5 @@
 import React from 'react';
-import { Room, RoomStatus, RoomType, SessionWithDetails } from '~/types';
+import { Room, RoomStatus, SessionWithDetails } from '~/types';
 
 interface RoomListProps {
   rooms: Room[];
@@ -18,28 +18,10 @@ export default function RoomList({ rooms, activeSessions = [], onRoomStatusChang
     
     return () => clearInterval(interval);
   }, []);
-  const getRoomTypeIcon = (type: RoomType) => {
-    switch (type) {
-      case 'Shower':
-        return '🚿';
-      case 'Large Shower':
-        return '🚿💧';
-      case 'VIP Jacuzzi':
-        return '🛁✨';
-      default:
-        return '🏠';
-    }
-  };
-
   const getStatusText = (status: RoomStatus) => {
     return status === 'Available' ? 'Available' : 'Occupied';
   };
 
-  const getStatusColor = (status: RoomStatus) => {
-    return status === 'Available' 
-      ? 'text-green-400 bg-green-900/20 border-green-400/30' 
-      : 'text-red-400 bg-red-900/20 border-red-400/30';
-  };
 
   const getSessionForRoom = (roomId: string) => {
     return activeSessions.find(session => session.room_id === roomId);
@@ -138,6 +120,15 @@ export default function RoomList({ rooms, activeSessions = [], onRoomStatusChang
                           onRoomStatusChange(room.id, newStatus);
                         }
                       }}
+                      onKeyDown={(e) => {
+                        if ((e.key === 'Enter' || e.key === ' ') && onRoomStatusChange && !session) {
+                          e.preventDefault();
+                          const newStatus = room.status === 'Available' ? 'Occupied' : 'Available';
+                          onRoomStatusChange(room.id, newStatus);
+                        }
+                      }}
+                      tabIndex={onRoomStatusChange && !session ? 0 : -1}
+                      role="button"
                       title={session ? 'Room in use' : 'Click to toggle status'}
                     >
                       <h5 className="font-semibold text-white">{room.name}</h5>

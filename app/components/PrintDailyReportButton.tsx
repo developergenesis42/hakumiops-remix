@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { usePrintNode } from '~/hooks/usePrintNode';
 import PrinterSelector from './PrinterSelector';
 

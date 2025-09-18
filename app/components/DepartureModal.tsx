@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Therapist, SessionWithDetails } from '../types';
 
 interface DepartureModalProps {
@@ -20,14 +20,7 @@ export default function DepartureModal({
   const [totalExpenses, setTotalExpenses] = useState<number>(0);
   const [netPayout, setNetPayout] = useState<number>(0);
 
-  // Calculate financials when modal opens or therapist changes
-  useEffect(() => {
-    if (isOpen && therapist) {
-      calculateFinancials();
-    }
-  }, [isOpen, therapist, completedSessions]);
-
-  const calculateFinancials = () => {
+  const calculateFinancials = useCallback(() => {
     if (!therapist) return;
 
     // Calculate gross payout from completed sessions
@@ -49,7 +42,14 @@ export default function DepartureModal({
     setGrossPayout(gross);
     setTotalExpenses(expenses);
     setNetPayout(net);
-  };
+  }, [therapist, completedSessions]);
+
+  // Calculate financials when modal opens or therapist changes
+  useEffect(() => {
+    if (isOpen && therapist) {
+      calculateFinancials();
+    }
+  }, [isOpen, therapist, completedSessions, calculateFinancials]);
 
   // Format currency
   const formatCurrency = (value: number) => {

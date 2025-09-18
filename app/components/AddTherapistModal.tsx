@@ -66,7 +66,8 @@ export default function AddTherapistModal({
           check_in_time: null,
           check_out_time: null,
           active_room_id: null,
-          completed_room_ids: []
+          completed_room_ids: [],
+          expenses: []
         };
         
         onAddTherapist(newTherapist);
@@ -97,7 +98,7 @@ export default function AddTherapistModal({
         <div className="bg-gray-800 rounded-lg p-8 w-full max-w-md space-y-6 modal-fade-in">
           <h3 className="text-2xl font-bold text-white">Add Therapist to Roster</h3>
           <p className="text-gray-400">
-            Select a therapist from the master list to add to today's duty roster.
+            Select a therapist from the master list to add to today&apos;s duty roster.
           </p>
           
           <div>

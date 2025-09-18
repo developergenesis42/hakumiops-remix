@@ -1,5 +1,5 @@
 import { json } from "@remix-run/node";
-import { printNodeService } from "~/utils/printnode.server";
+import { getPrintNodeService } from "~/utils/printnode.server";
 
 export async function action({ request }: { request: Request }) {
   if (request.method !== "POST") {
@@ -8,7 +8,7 @@ export async function action({ request }: { request: Request }) {
 
   try {
     const body = await request.json();
-    const { type, printerId, data } = body;
+    const { type, printerId, data, copies } = body;
 
     if (!type || !printerId) {
       return json({ error: "Type and printerId are required" }, { status: 400 });
@@ -21,24 +21,34 @@ export async function action({ request }: { request: Request }) {
         if (!data.service || !data.price) {
           return json({ error: "Receipt data is incomplete" }, { status: 400 });
         }
-        result = await printNodeService.printReceipt(printerId, {
-          ...data,
-          timestamp: data.timestamp || new Date().toLocaleString()
-        });
+        
+        // Use copies if specified, otherwise single receipt
+        const printNodeService = getPrintNodeService();
+        if (copies && copies > 1) {
+          result = await printNodeService.printReceiptCopies(printerId, {
+            ...data,
+            timestamp: data.timestamp || new Date().toLocaleString()
+          }, copies);
+        } else {
+          result = await printNodeService.printReceipt(printerId, {
+            ...data,
+            timestamp: data.timestamp || new Date().toLocaleString()
+          });
+        }
         break;
 
       case 'daily-report':
         if (!data.date || data.totalRevenue === undefined) {
           return json({ error: "Daily report data is incomplete" }, { status: 400 });
         }
-        result = await printNodeService.printDailyReport(printerId, data);
+        result = await getPrintNodeService().printDailyReport(printerId, data);
         break;
 
       case 'custom':
         if (!data.content) {
           return json({ error: "Custom print content is required" }, { status: 400 });
         }
-        result = await printNodeService.printJob(printerId, data.content, data.title || 'Custom Print');
+        result = await getPrintNodeService().printJob(printerId, data.content, data.title || 'Custom Print');
         break;
 
       default:

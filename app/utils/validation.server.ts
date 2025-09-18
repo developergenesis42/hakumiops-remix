@@ -120,7 +120,7 @@ export function validateService(service: Partial<Service>): ValidationResult {
   if (service.payout !== undefined) {
     if (service.payout < 0) {
       errors.push({ field: 'payout', message: 'Payout cannot be negative' });
-    } else if (service.payout > service.price || 0) {
+    } else if (service.payout > (service.price || 0)) {
       errors.push({ field: 'payout', message: 'Payout cannot exceed price' });
     }
   }
@@ -176,6 +176,23 @@ export function validateSession(session: Partial<Session>): ValidationResult {
 
   if (session.payout !== undefined && session.payout < 0) {
     errors.push({ field: 'payout', message: 'Payout cannot be negative' });
+  }
+
+  // Optional fields
+  if (session.discount !== undefined) {
+    if (![0, 200, 300].includes(Number(session.discount))) {
+      errors.push({ field: 'discount', message: 'Discount must be 0, 200, or 300' });
+    }
+  }
+
+  if (session.wob !== undefined) {
+    if (!['W', 'O', 'B'].includes(session.wob as string)) {
+      errors.push({ field: 'wob', message: 'WOB must be W (Walk-in), O (Online), or B (Booking)' });
+    }
+  }
+
+  if (session.vip !== undefined && typeof session.vip !== 'boolean') {
+    errors.push({ field: 'vip', message: 'VIP must be a boolean' });
   }
 
   return {

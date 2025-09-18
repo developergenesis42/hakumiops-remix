@@ -1,7 +1,6 @@
 import { json } from "@remix-run/node";
 import { createTherapist, getTherapists, updateTherapist } from "~/utils/database.server";
 import { validateTherapist } from "~/utils/validation.server";
-import type { Therapist } from "~/types";
 
 export async function loader({ request }: { request: Request }) {
   try {

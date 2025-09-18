@@ -16,10 +16,16 @@ interface ReceiptData {
   service: string;
   duration: number;
   price: number;
+  payout: number;
   therapist: string;
   room: string;
+  startTime?: string;
+  endTime?: string;
   timestamp?: string;
   paymentMethod?: string;
+  discount?: number;
+  wob?: string;
+  vip?: boolean;
 }
 
 interface DailyReportData {
@@ -69,7 +75,7 @@ export function usePrintNode() {
     }
   }, [fetchPrinters]);
 
-  const printReceipt = useCallback(async (printerId: number, receiptData: ReceiptData): Promise<void> => {
+  const printReceipt = useCallback(async (printerId: number, receiptData: ReceiptData, copies: number = 1): Promise<void> => {
     try {
       setIsLoading(true);
       setError(null);
@@ -83,6 +89,7 @@ export function usePrintNode() {
           type: 'receipt',
           printerId,
           data: receiptData,
+          copies: copies,
         }),
       });
 
@@ -92,7 +99,7 @@ export function usePrintNode() {
       }
 
       const result = await response.json();
-      console.log('Receipt printed successfully:', result);
+      console.log(`Receipt printed successfully (${copies} copies):`, result);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to print receipt';
       setError(errorMessage);

@@ -1,3 +1,4 @@
+/* eslint-disable no-undef, no-unused-vars */
 // Comprehensive Supabase table inspection script
 // Run with: node check-supabase-tables.js
 
