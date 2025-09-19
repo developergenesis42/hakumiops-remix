@@ -1,5 +1,5 @@
-import { Therapist, SessionWithDetails, BookingWithDetails } from '../types';
-import TherapistCard from './TherapistCard';
+import { Therapist, SessionWithDetails, BookingWithDetails } from '~/types';
+import TherapistCard from '~/components/business/TherapistCard';
 
 interface TherapistGridProps {
   therapists: Therapist[];

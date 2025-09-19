@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Therapist } from '../types';
+import { Therapist } from '~/types';
 
 // Expense items from the HTML version
 const EXPENSE_ITEMS = [

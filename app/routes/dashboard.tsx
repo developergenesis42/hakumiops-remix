@@ -4,8 +4,8 @@ import { Outlet } from "@remix-run/react";
 import { useState } from "react";
 
 import MenuIcon from "~/components/icons/Menu";
-import ProfilePopup from "~/components/ProfilePopup";
-import Sidebar from "~/components/Sidebar";
+import ProfilePopup from "~/components/business/ProfilePopup";
+import Sidebar from "~/components/layout/Sidebar";
 import { getSession } from "~/session.server";
 import { getSupabaseClient } from "~/utils/getSupabaseClient";
 

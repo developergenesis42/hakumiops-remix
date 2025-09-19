@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs, MetaFunction } from "@remix-run/node";
 import { Link, useFetcher, useLoaderData } from "@remix-run/react";
 
-import Button from "~/components/Button";
+import Button from "~/components/ui/Button";
 import { GlobalErrorBoundary } from "~/components/GlobalErrorBoundary";
 import DeleteIcon from "~/components/icons/Delete";
 import EditIcon from "~/components/icons/Edit";

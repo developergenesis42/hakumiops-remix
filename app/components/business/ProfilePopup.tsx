@@ -1,7 +1,7 @@
 import { Form, Link } from "@remix-run/react";
 import { useRef, useState } from "react";
 
-import Popup from "./Popup";
+import Popup from "~/components/ui/Popup";
 
 export default function ProfilePopup() {
   const [isPopupOpen, setIsPopupOpen] = useState(false);

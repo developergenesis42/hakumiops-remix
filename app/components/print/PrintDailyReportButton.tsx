@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { usePrintNode } from '~/hooks/usePrintNode';
-import PrinterSelector from './PrinterSelector';
+import PrinterSelector from '~/components/print/PrinterSelector';
 
 interface PrintDailyReportButtonProps {
   reportData: {

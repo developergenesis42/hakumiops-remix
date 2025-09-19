@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Therapist, SessionWithDetails } from '../types';
+import { Therapist, SessionWithDetails } from '~/types';
 
 interface PayoutModalProps {
   isOpen: boolean;

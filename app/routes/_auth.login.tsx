@@ -8,8 +8,8 @@ import { Form, Link, useActionData, useNavigation } from "@remix-run/react";
 
 import { commitSession, getSession } from "~/session.server";
 
-import Button from "~/components/Button";
-import TextField from "~/components/TextField";
+import Button from "~/components/ui/Button";
+import TextField from "~/components/ui/TextField";
 import { getSupabaseClient } from "~/utils/getSupabaseClient";
 
 export const meta: MetaFunction = () => {

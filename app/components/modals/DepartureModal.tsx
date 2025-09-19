@@ -1,4 +1,4 @@
-import { Therapist } from '../types';
+import { Therapist } from '~/types';
 
 interface DepartureModalProps {
   isOpen: boolean;

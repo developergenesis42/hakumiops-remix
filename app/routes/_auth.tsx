@@ -1,7 +1,7 @@
 import { redirect } from "@remix-run/node";
 import { Outlet } from "@remix-run/react";
 
-import Logo from "~/components/Logo";
+import Logo from "~/components/layout/Logo";
 import { getSupabaseClient } from "~/utils/getSupabaseClient";
 
 export function loader() {

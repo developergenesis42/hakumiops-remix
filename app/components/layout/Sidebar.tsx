@@ -1,10 +1,10 @@
 import { NavLink } from "@remix-run/react";
 import React from "react";
 
-import Logo from "~/components/Logo";
-import ArrowRightIcon from "./icons/ArrowRight";
-import ArrowTopRightIcon from "./icons/ArrowTopRight";
-import CloseIcon from "./icons/Close";
+import Logo from "~/components/layout/Logo";
+import ArrowRightIcon from "~/components/icons/ArrowRight";
+import ArrowTopRightIcon from "~/components/icons/ArrowTopRight";
+import CloseIcon from "~/components/icons/Close";
 
 const NAV_ITEMS = [
   {

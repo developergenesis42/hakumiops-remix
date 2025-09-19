@@ -2,7 +2,7 @@ import { Link } from "@remix-run/react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import React from "react";
 
-import LoadingSpinner from "./icons/LoadingSpinner";
+import LoadingSpinner from "~/components/icons/LoadingSpinner";
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   className?: string;

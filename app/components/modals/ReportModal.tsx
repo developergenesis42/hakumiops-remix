@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Therapist, SessionWithDetails, Walkout, ShopExpense, FinancialSummary } from '../types';
-import PrintDailyReportButton from './PrintDailyReportButton';
+import { Therapist, SessionWithDetails, Walkout, ShopExpense, FinancialSummary } from '~/types';
+import PrintDailyReportButton from '~/components/print/PrintDailyReportButton';
 
 interface ReportModalProps {
   isOpen: boolean;

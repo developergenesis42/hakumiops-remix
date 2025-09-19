@@ -7,9 +7,9 @@ import { redirect } from "@remix-run/node";
 import { Form, Link, useLoaderData, useNavigation } from "@remix-run/react";
 import invariant from "tiny-invariant";
 
-import Button from "~/components/Button";
+import Button from "~/components/ui/Button";
 import { GlobalErrorBoundary } from "~/components/GlobalErrorBoundary";
-import TextField from "~/components/TextField";
+import TextField from "~/components/ui/TextField";
 import { getSupabaseClient } from "~/utils/getSupabaseClient";
 
 export const meta: MetaFunction = () => {

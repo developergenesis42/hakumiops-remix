@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Service, Therapist, Room, BookingWithDetails } from '../types';
+import { Service, Therapist, Room, BookingWithDetails } from '~/types';
 
 // Services data from the HTML version
 const SERVICES: Service[] = [

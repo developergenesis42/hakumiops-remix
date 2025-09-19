@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Therapist } from '../types';
+import { Therapist } from '~/types';
 
 // Master therapist list from the HTML version
 const MASTER_THERAPIST_LIST = [

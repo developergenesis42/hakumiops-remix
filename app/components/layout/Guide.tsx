@@ -1,4 +1,4 @@
-import CodeBlock from "./CodeBlock";
+import CodeBlock from "~/components/ui/CodeBlock";
 
 const SQL_CODE_MEMBERS = `CREATE TABLE members (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Service, ServiceCategory, Room, Therapist, BookingWithDetails, AddonItem, SessionWithDetails } from '../types';
+import { Service, ServiceCategory, Room, Therapist, BookingWithDetails, AddonItem, SessionWithDetails } from '~/types';
 import { usePrintNode } from '~/hooks/usePrintNode';
 
 // Utility function to round time to nearest 5-minute increment

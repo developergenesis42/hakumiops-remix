@@ -1,5 +1,5 @@
 import React from 'react';
-import { Therapist, TherapistStatus, SessionWithDetails, BookingWithDetails } from '../types';
+import { Therapist, TherapistStatus, SessionWithDetails, BookingWithDetails } from '~/types';
 
 interface TherapistCardProps {
   therapist: Therapist;
