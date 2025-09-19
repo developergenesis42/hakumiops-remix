@@ -1,6 +1,6 @@
 
 import { useLoaderData } from "@remix-run/react";
-import React, { useState, useCallback, useMemo, useRef } from "react";
+import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
 // Real-time subscriptions enabled for multi-device synchronization
 import { subscribeToAllData } from "~/utils/realtime.client";
 import RoomList from "~/components/business/RoomList";
@@ -141,6 +141,41 @@ interface LoaderData {
     shopExpenses: string | null;
     financials: string | null;
   };
+}
+
+// Real-time date/time component
+function DateTimeDisplay() {
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatDateTime = (date: Date) => {
+    const options: Intl.DateTimeFormatOptions = {
+      weekday: 'short',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    };
+    
+    return date.toLocaleDateString('en-US', options)
+      .replace(/(\w+), (\w+) (\d+), (\d+), (\d+):(\d+):(\d+)/, '$1, $2 $3, $4 • $5:$6:$7');
+  };
+
+  return (
+    <div className="text-center text-sm text-gray-300 font-mono">
+      {formatDateTime(currentTime)}
+    </div>
+  );
 }
 
 export default function Home() {
@@ -1832,6 +1867,7 @@ export default function Home() {
       <header className="bg-gray-900/80 backdrop-blur-sm p-4 shadow-lg sticky top-0 z-20 border-b border-gray-700 flex-shrink-0">
         <h1 className="text-2xl font-bold text-center text-white tracking-wider">HAKUMI NURU MASSAGE</h1>
         <p className="text-center text-sm text-gray-400">Operations Command Center</p>
+        <DateTimeDisplay />
         
         {/* Error Display */}
         {error && (
