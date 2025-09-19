@@ -1,6 +1,7 @@
 import { json } from "@remix-run/node";
 import { createWalkout, getWalkouts } from "~/utils/database.server";
 import { validateWalkout } from "~/utils/validation.server";
+import { createClient } from "~/utils/supabase.server";
 
 export async function loader() {
   try {
@@ -19,6 +20,28 @@ export async function loader() {
 }
 
 export async function action({ request }: { request: Request }) {
+  if (request.method === 'DELETE') {
+    // Handle clearing all walkouts (for end of day)
+    try {
+      const { supabase } = createClient();
+      
+      const { error } = await supabase
+        .from('walkouts')
+        .delete()
+        .neq('id', '00000000-0000-0000-0000-000000000000'); // Delete all records
+      
+      if (error) {
+        return json({ error: error.message }, { status: 500 });
+      }
+      
+      return json({ message: 'All walkouts cleared successfully' });
+    } catch (error) {
+      return json({ 
+        error: error instanceof Error ? error.message : 'Failed to clear walkouts' 
+      }, { status: 500 });
+    }
+  }
+  
   if (request.method !== "POST") {
     return json({ error: "Method not allowed" }, { status: 405 });
   }

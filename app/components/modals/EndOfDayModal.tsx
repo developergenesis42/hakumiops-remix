@@ -4,10 +4,10 @@ interface EndOfDayModalProps {
   isOpen: boolean;
   onClose: () => void;
   onConfirmEndOfDay: () => void;
-  // We'll add data props later when we implement data persistence
+  activeSessionsCount: number;
 }
 
-export default function EndOfDayModal({ isOpen, onClose, onConfirmEndOfDay }: EndOfDayModalProps) {
+export default function EndOfDayModal({ isOpen, onClose, onConfirmEndOfDay, activeSessionsCount }: EndOfDayModalProps) {
   const [isProcessing, setIsProcessing] = useState(false);
 
   const handleConfirm = async () => {
@@ -38,7 +38,26 @@ export default function EndOfDayModal({ isOpen, onClose, onConfirmEndOfDay }: En
           </p>
         </div>
 
-        {/* Warning Section */}
+        {/* Active Sessions Warning */}
+        {activeSessionsCount > 0 && (
+          <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
+            <div className="flex items-start space-x-3">
+              <div className="text-red-400 text-xl">🚨</div>
+              <div className="text-sm text-red-200">
+                <p className="font-semibold mb-2">Active Sessions Detected!</p>
+                <p className="text-red-300 mb-2">
+                  There {activeSessionsCount === 1 ? 'is' : 'are'} currently {activeSessionsCount} active session{activeSessionsCount === 1 ? '' : 's'} in progress.
+                </p>
+                <p className="text-red-300">
+                  These sessions will be <strong>force completed</strong> with the current time. 
+                  Make sure all customers have finished their treatments before proceeding.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* General Warning Section */}
         <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-4">
           <div className="flex items-start space-x-3">
             <div className="text-yellow-400 text-xl">⚠️</div>
@@ -46,12 +65,11 @@ export default function EndOfDayModal({ isOpen, onClose, onConfirmEndOfDay }: En
               <p className="font-semibold mb-2">This will:</p>
               <ul className="list-disc list-inside space-y-1 text-yellow-300">
                 <li>Save today&apos;s final report to history</li>
-                <li>Reset all therapist statuses to &quot;Rostered&quot;</li>
-                <li>Clear all active sessions</li>
+                <li>{activeSessionsCount > 0 ? 'Force complete active sessions, then ' : ''}Clear all therapists from dashboard (clean slate for next day)</li>
                 <li>Reset all rooms to &quot;Available&quot;</li>
                 <li>Clear today&apos;s bookings (keep future bookings)</li>
-                <li>Reset financial counters</li>
-                <li>Preserve walkouts and expenses for analytics</li>
+                <li>Reset financial counters (clear from database)</li>
+                <li>Archive walkouts and expenses in daily report (cleared from dashboard)</li>
               </ul>
             </div>
           </div>

@@ -1297,10 +1297,65 @@ export default function Home() {
       
       console.log('Daily report saved successfully');
       
-      // PHASE 2: RESET FOR NEXT DAY
-      console.log('Phase 2: Resetting for next day...');
+      // PHASE 2: SAFELY HANDLE ACTIVE SESSIONS
+      console.log('Phase 2: Safely handling active sessions...');
       
-      // Clear all active sessions (only in-progress sessions)
+      // Check for active sessions and force complete them
+      const activeSessionsToComplete = activeSessions.filter(session => session.status === 'In Progress');
+      
+      if (activeSessionsToComplete.length > 0) {
+        console.log(`Found ${activeSessionsToComplete.length} active sessions - force completing them...`);
+        
+        for (const session of activeSessionsToComplete) {
+          try {
+            // Force complete the session with current time
+            const currentTime = new Date().toISOString();
+            
+            const completeResponse = await fetch('/api/sessions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'complete',
+                sessionId: session.id,
+                endTime: currentTime,
+                forceComplete: true // Flag to indicate this is an end-of-day force completion
+              })
+            });
+            
+            if (completeResponse.ok) {
+              console.log(`Force completed session ${session.id}`);
+              
+              // Update local state
+              setActiveSessions(prev => prev.filter(s => s.id !== session.id));
+              setCompletedSessions(prev => [...prev, { ...session, status: 'Completed', end_time: currentTime }]);
+              
+              // Update therapist statuses
+              const sessionTherapists = therapists.filter(t => session.therapist_ids.includes(t.id));
+              for (const therapist of sessionTherapists) {
+                setTherapists(prev => prev.map(t => 
+                  t.id === therapist.id 
+                    ? { ...t, status: 'Available' as const, active_room_id: null }
+                    : t
+                ));
+              }
+              
+              // Update room status
+              setRooms(prev => prev.map(room => 
+                room.id === session.room_id 
+                  ? { ...room, status: 'Available' as const }
+                  : room
+              ));
+              
+            } else {
+              console.error(`Failed to force complete session ${session.id}`);
+            }
+          } catch (error) {
+            console.error(`Error force completing session ${session.id}:`, error);
+          }
+        }
+      }
+      
+      // Clear any remaining active sessions
       setActiveSessions([]);
       
       // Clear today's bookings (keep future bookings)
@@ -1312,29 +1367,45 @@ export default function Home() {
         new Date(booking.start_time) >= tomorrow
       ));
       
-      // Keep all walkouts data (preserved for analytics and reporting)
-      // Note: Walkouts are archived in daily report AND kept in database
-      console.log('Walkouts data preserved in database for historical analysis');
+      // Clear today's walkouts from dashboard (data is archived in daily report)
+      setWalkouts([]);
+      console.log('Today\'s walkouts cleared from dashboard - data archived in daily report');
+      
+      // Clear walkouts from database (data is preserved in daily reports)
+      try {
+        const clearWalkoutsResponse = await fetch('/api/walkouts', {
+          method: 'DELETE'
+        });
+        
+        if (!clearWalkoutsResponse.ok) {
+          console.warn('Failed to clear walkouts from database, but continuing...');
+        } else {
+          console.log('Walkouts cleared from database successfully');
+        }
+      } catch (error) {
+        console.warn('Error clearing walkouts from database:', error);
+      }
       
       // Keep all shop expenses data (preserved for analytics and reporting)
       // Note: Shop expenses are archived in daily report AND kept in database
       console.log('Shop expenses data preserved in database for historical analysis');
       
-      // Reset therapist statuses to 'Rostered' but keep historical data
+      // Clear all therapists from dashboard for clean next-day start
+      // Staff can add therapists as needed from the roster
+      setTherapists([]);
+      console.log('Dashboard cleared - therapists will need to be added from roster for next day');
+      
+      // Update therapists in database (set all to off-duty and reset status)
       const resetTherapists = therapists.map(therapist => ({
         ...therapist,
         status: 'Rostered' as const,
         is_on_duty: false,
         active_room_id: null,
-        completed_room_ids: [], // Reset for new day
+        completed_room_ids: [],
         check_in_time: null,
         check_out_time: null
-        // Keep expenses array - they're archived in daily report
       }));
       
-      setTherapists(resetTherapists);
-      
-      // Update therapists in database
       for (const therapist of resetTherapists) {
         try {
           await fetch('/api/therapists?action=update', {
@@ -1362,6 +1433,52 @@ export default function Home() {
         ...room,
         status: 'Available' as const
       })));
+      
+      // Clear financial data from database for clean next-day start
+      // Note: Data is already archived in daily report, so safe to clear
+      try {
+        console.log('Clearing financial data from database for next day...');
+        
+        // Clear completed sessions (data archived in daily report)
+        const clearSessionsResponse = await fetch('/api/sessions', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'clear_completed' })
+        });
+        
+        if (!clearSessionsResponse.ok) {
+          console.warn('Failed to clear completed sessions, but continuing...');
+        } else {
+          console.log('Completed sessions cleared from database successfully');
+        }
+        
+        // Clear therapist expenses (data archived in daily report)
+        const clearTherapistExpensesResponse = await fetch('/api/expenses', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'clear_all' })
+        });
+        
+        if (!clearTherapistExpensesResponse.ok) {
+          console.warn('Failed to clear therapist expenses, but continuing...');
+        } else {
+          console.log('Therapist expenses cleared from database successfully');
+        }
+        
+        // Clear shop expenses (data archived in daily report)
+        const clearShopExpensesResponse = await fetch('/api/shop-expenses', {
+          method: 'DELETE'
+        });
+        
+        if (!clearShopExpensesResponse.ok) {
+          console.warn('Failed to clear shop expenses, but continuing...');
+        } else {
+          console.log('Shop expenses cleared from database successfully');
+        }
+        
+      } catch (error) {
+        console.warn('Error clearing financial data from database:', error);
+      }
       
       // Reset financials for new day
       setFinancials({
@@ -2241,6 +2358,7 @@ export default function Home() {
         isOpen={isEndOfDayModalOpen}
         onClose={() => setIsEndOfDayModalOpen(false)}
         onConfirmEndOfDay={handleEndOfDay}
+        activeSessionsCount={activeSessions.filter(s => s.status === 'In Progress').length}
       />
     </div>
   );

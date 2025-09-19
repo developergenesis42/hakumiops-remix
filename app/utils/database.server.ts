@@ -16,6 +16,53 @@ import type {
 } from "~/types";
 
 // ============================================================================
+// ROSTER OPERATIONS
+// ============================================================================
+
+export async function getRoster(): Promise<{ data: Array<{id: number; name: string; vip_number: number | null; is_active: boolean}>; error: string | null }> {
+  try {
+    const { supabase } = createClient();
+    
+    const { data, error } = await supabase
+      .from('roster')
+      .select('id, name, vip_number, is_active')
+      .eq('is_active', true)
+      .order('vip_number', { ascending: true });
+    
+    if (error) throw error;
+    
+    return { data: data || [], error: null };
+  } catch (error) {
+    return { 
+      data: [], 
+      error: error instanceof Error ? error.message : 'Failed to fetch roster' 
+    };
+  }
+}
+
+export async function getAvailableRosterTherapists(currentTherapistNames: string[]): Promise<{ data: Array<{id: number; name: string; vip_number: number | null}>; error: string | null }> {
+  try {
+    const { supabase } = createClient();
+    
+    const { data, error } = await supabase
+      .from('roster')
+      .select('id, name, vip_number')
+      .eq('is_active', true)
+      .not('name', 'in', `(${currentTherapistNames.map(name => `'${name}'`).join(',')})`)
+      .order('vip_number', { ascending: true });
+    
+    if (error) throw error;
+    
+    return { data: data || [], error: null };
+  } catch (error) {
+    return { 
+      data: [], 
+      error: error instanceof Error ? error.message : 'Failed to fetch available roster therapists' 
+    };
+  }
+}
+
+// ============================================================================
 // THERAPIST OPERATIONS
 // ============================================================================
 
@@ -860,124 +907,106 @@ export async function getMonthlyData(month: string): Promise<{ data: Record<stri
     
     // Parse month (format: YYYY-MM)
     const [year, monthNum] = month.split('-');
-    const startDate = `${year}-${monthNum}-01T00:00:00Z`;
-    const endDate = new Date(parseInt(year), parseInt(monthNum), 0, 23, 59, 59).toISOString();
+    const startDate = `${year}-${monthNum}-01`;
+    const endDate = `${year}-${monthNum}-${new Date(parseInt(year), parseInt(monthNum), 0).getDate()}`;
     
     console.log(`Fetching monthly data for ${month}: ${startDate} to ${endDate}`);
     
-    // Get sessions for the month
-    const { data: sessions, error: sessionsError } = await supabase
-      .from("sessions")
+    // Get daily reports for the month (this is the archived data)
+    const { data: dailyReports, error: dailyReportsError } = await supabase
+      .from("daily_reports")
       .select("*")
-      .gte("created_at", startDate)
-      .lte("created_at", endDate);
+      .gte("report_date", startDate)
+      .lte("report_date", endDate)
+      .order("report_date", { ascending: true });
     
-    if (sessionsError) throw sessionsError;
+    if (dailyReportsError) throw dailyReportsError;
     
-    // Get therapist expenses for the month
-    const { data: therapistExpenses, error: expensesError } = await supabase
-      .from("therapist_expenses")
-      .select("*")
-      .gte("created_at", startDate)
-      .lte("created_at", endDate);
+    console.log(`Found ${dailyReports?.length || 0} daily reports for ${month}`);
     
-    if (expensesError) throw expensesError;
+    // Aggregate data from daily reports
+    let totalRevenue = 0;
+    let totalShopRevenue = 0;
+    let totalTherapistPayouts = 0;
+    let totalSessions = 0;
+    let totalWalkouts = 0;
+    let totalWalkoutPeople = 0;
+    let totalShopExpenses = 0;
     
-    // Get shop expenses for the month
-    const { data: shopExpenses, error: shopExpensesError } = await supabase
-      .from("shop_expenses")
-      .select("*")
-      .gte("created_at", startDate)
-      .lte("created_at", endDate);
+    // Aggregate detailed data from daily reports
+    const allSessions: any[] = [];
+    const allWalkouts: any[] = [];
+    const allShopExpenses: any[] = [];
+    const therapistPerformance: Record<string, { name: string; sessions: number; revenue: number; expenses: number }> = {};
     
-    if (shopExpensesError) throw shopExpensesError;
+    (dailyReports || []).forEach(report => {
+      // Sum up financial totals
+      totalRevenue += Number(report.total_revenue || 0);
+      totalShopRevenue += Number(report.shop_revenue || 0);
+      totalTherapistPayouts += Number(report.therapist_payouts || 0);
+      totalSessions += Number(report.session_count || 0);
+      totalWalkouts += Number(report.walkout_count || 0);
+      
+      // Extract detailed data from report_data JSONB
+      if (report.report_data) {
+        const reportData = report.report_data as any;
+        
+        // Aggregate sessions
+        if (reportData.completed_sessions && Array.isArray(reportData.completed_sessions)) {
+          allSessions.push(...reportData.completed_sessions);
+        }
+        
+        // Aggregate walkouts
+        if (reportData.walkouts && Array.isArray(reportData.walkouts)) {
+          allWalkouts.push(...reportData.walkouts);
+          totalWalkoutPeople += reportData.walkouts.reduce((sum: number, w: any) => sum + Number(w.count || 0), 0);
+        }
+        
+        // Aggregate shop expenses
+        if (reportData.shop_expenses && Array.isArray(reportData.shop_expenses)) {
+          allShopExpenses.push(...reportData.shop_expenses);
+          totalShopExpenses += reportData.shop_expenses.reduce((sum: number, e: any) => sum + Number(e.amount || 0), 0);
+        }
+        
+        // Aggregate therapist performance
+        if (reportData.therapist_summaries && Array.isArray(reportData.therapist_summaries)) {
+          reportData.therapist_summaries.forEach((therapist: any) => {
+            if (!therapistPerformance[therapist.name]) {
+              therapistPerformance[therapist.name] = {
+                name: therapist.name,
+                sessions: 0,
+                revenue: 0,
+                expenses: 0
+              };
+            }
+            therapistPerformance[therapist.name].sessions += Number(therapist.session_count || 0);
+            therapistPerformance[therapist.name].expenses += Number(therapist.total_expenses || 0);
+          });
+        }
+      }
+    });
     
-    // Get walkouts for the month
-    const { data: walkouts, error: walkoutsError } = await supabase
-      .from("walkouts")
-      .select("*")
-      .gte("created_at", startDate)
-      .lte("created_at", endDate);
-    
-    if (walkoutsError) throw walkoutsError;
-    
-    // Get all therapists for breakdown
-    const { data: therapists, error: therapistsError } = await supabase
-      .from("therapists")
-      .select("*");
-    
-    if (therapistsError) throw therapistsError;
-    
-    // Calculate financial totals
-    const totalRevenue = (sessions || []).reduce((sum, session) => sum + Number(session.price || 0), 0);
-    const therapistPayouts = (sessions || []).reduce((sum, session) => sum + Number(session.payout || 0), 0);
-    const totalTherapistExpenses = (therapistExpenses || []).reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-    const totalShopExpenses = (shopExpenses || []).reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-    const shopRevenue = totalRevenue - therapistPayouts + totalTherapistExpenses - totalShopExpenses;
-    
-    // Calculate walkout statistics
-    const totalWalkouts = (walkouts || []).length;
-    const totalWalkoutPeople = (walkouts || []).reduce((sum, walkout) => sum + Number(walkout.count || 0), 0);
-    
-    // Group walkouts by reason
+    // Group walkouts by reason from aggregated data
     const walkoutReasons: Record<string, number> = {};
-    (walkouts || []).forEach(walkout => {
+    allWalkouts.forEach(walkout => {
       const reason = walkout.reason || 'Unknown';
       walkoutReasons[reason] = (walkoutReasons[reason] || 0) + Number(walkout.count || 0);
     });
     
-    // Calculate therapist breakdown
-    const therapistBreakdown = [];
-    if (therapists) {
-      for (const therapist of therapists) {
-        // Get sessions for this therapist in this month
-        const therapistSessions = (sessions || []).filter(session => 
-          session.therapist_ids && session.therapist_ids.includes(therapist.id)
-        );
-        
-        // Get expenses for this therapist in this month
-        const therapistExpensesFiltered = (therapistExpenses || []).filter((expense: { id: string; item_name: string; amount: number; therapist_id: string }) => 
-          expense.therapist_id === therapist.id
-        );
-        
-        if (therapistSessions.length > 0 || therapistExpensesFiltered.length > 0) {
-          const grossPayout = therapistSessions.reduce((sum: number, session: { payout: number }) => sum + Number(session.payout || 0), 0);
-          const expenses = therapistExpensesFiltered.reduce((sum: number, expense: { amount: number }) => sum + Number(expense.amount || 0), 0);
-          const netPayout = grossPayout - expenses;
-          
-          // Calculate hours (simplified - using check_in/check_out if available)
-          let totalHours = '0 hrs';
-          if (therapist.check_in_time && therapist.check_out_time) {
-            const checkIn = new Date(therapist.check_in_time);
-            const checkOut = new Date(therapist.check_out_time);
-            const hours = (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60);
-            totalHours = `${hours.toFixed(1)} hrs`;
-          }
-          
-          therapistBreakdown.push({
-            name: therapist.name,
-            grossPayout,
-            sessionCount: therapistSessions.length,
-            expenses,
-            netPayout,
-            checkIn: therapist.check_in_time ? new Date(therapist.check_in_time).toLocaleTimeString('en-US', { 
-              hour: '2-digit', 
-              minute: '2-digit',
-              hour12: false 
-            }) : 'N/A',
-            checkOut: therapist.check_out_time ? new Date(therapist.check_out_time).toLocaleTimeString('en-US', { 
-              hour: '2-digit', 
-              minute: '2-digit',
-              hour12: false 
-            }) : 'N/A',
-            totalHours
-          });
-        }
-      }
-    }
+    // Convert therapist performance to array format
+    const therapistBreakdown = Object.values(therapistPerformance).map(therapist => ({
+      name: therapist.name,
+      grossPayout: 0, // We don't have individual payout data in daily reports
+      sessionCount: therapist.sessions,
+      expenses: therapist.expenses,
+      netPayout: -therapist.expenses, // Negative because it's expenses
+      checkIn: 'N/A', // Not available in daily reports
+      checkOut: 'N/A', // Not available in daily reports
+      totalHours: 'N/A' // Not available in daily reports
+    }));
     
-    // Format shop expenses for display
-    const formattedShopExpenses = (shopExpenses || []).map(expense => ({
+    // Format shop expenses for display from aggregated data
+    const formattedShopExpenses = allShopExpenses.map(expense => ({
       note: expense.note || 'Unspecified expense',
       amount: Number(expense.amount || 0),
       timestamp: new Date(expense.created_at)
@@ -986,9 +1015,9 @@ export async function getMonthlyData(month: string): Promise<{ data: Record<stri
     const monthlyData = {
       month,
       totalRevenue,
-      shopRevenue,
-      therapistPayouts,
-      totalSessions: (sessions || []).length,
+      shopRevenue: totalShopRevenue,
+      therapistPayouts: totalTherapistPayouts,
+      totalSessions,
       totalWalkouts,
       totalWalkoutPeople,
       totalShopExpenses,
