@@ -49,8 +49,9 @@ export default function EndOfDayModal({ isOpen, onClose, onConfirmEndOfDay }: En
                 <li>Reset all therapist statuses to &quot;Rostered&quot;</li>
                 <li>Clear all active sessions</li>
                 <li>Reset all rooms to &quot;Available&quot;</li>
-                <li>Clear walkouts and bookings</li>
+                <li>Clear today&apos;s bookings (keep future bookings)</li>
                 <li>Reset financial counters</li>
+                <li>Preserve walkouts and expenses for analytics</li>
               </ul>
             </div>
           </div>

@@ -612,6 +612,7 @@ export async function createShopExpense(expense: Omit<ShopExpense, 'id' | 'creat
   }
 }
 
+
 // ============================================================================
 // WALKOUT OPERATIONS
 // ============================================================================
@@ -652,6 +653,7 @@ export async function createWalkout(walkout: Omit<Walkout, 'id' | 'created_at'>)
     };
   }
 }
+
 
 // ============================================================================
 // DAILY REPORT OPERATIONS
@@ -742,10 +744,10 @@ export async function calculateFinancials(date?: string): Promise<{ data: Financ
     const { supabase } = createClient();
     const targetDate = date || new Date().toISOString().split('T')[0];
 
-    // Get completed sessions for the day
+    // Get completed sessions for the day with all financial fields
     const { data: sessions, error: sessionsError } = await supabase
       .from("sessions")
-      .select("price, payout, payment_method")
+      .select("price, payout, payment_method, discount, addon_items, addon_custom_amount")
       .eq("status", "Completed")
       .gte("created_at", `${targetDate}T00:00:00Z`)
       .lt("created_at", `${targetDate}T23:59:59Z`);
@@ -770,23 +772,46 @@ export async function calculateFinancials(date?: string): Promise<{ data: Financ
 
     if (shopExpensesError) throw shopExpensesError;
 
-    // Calculate totals
-    const sessionRevenue = (sessions || []).reduce((sum, session) => sum + Number(session.price), 0);
+    // Helper function to calculate actual paid amount for a session
+    const calculateActualPaidAmount = (session: {
+      price: number;
+      discount?: number;
+      addon_items?: Array<{ price: number }>;
+      addon_custom_amount?: number;
+    }) => {
+      const basePrice = Number(session.price) || 0;
+      const discount = Number(session.discount) || 0;
+      
+      // Calculate addon total
+      let addonTotal = 0;
+      if (session.addon_items && Array.isArray(session.addon_items)) {
+        addonTotal += session.addon_items.reduce((sum: number, item: { price: number }) => sum + (Number(item.price) || 0), 0);
+      }
+      if (session.addon_custom_amount) {
+        addonTotal += Number(session.addon_custom_amount) || 0;
+      }
+      
+      // Actual paid amount = base price - discount + addons
+      return Math.max(0, basePrice - discount + addonTotal);
+    };
+
+    // Calculate totals using actual paid amounts
+    const sessionRevenue = (sessions || []).reduce((sum, session) => sum + calculateActualPaidAmount(session), 0);
     const sessionPayouts = (sessions || []).reduce((sum, session) => sum + Number(session.payout), 0);
     const therapistExpensesTotal = (therapistExpenses || []).reduce((sum, expense) => sum + Number(expense.amount), 0);
     const shopExpensesTotal = (shopExpenses || []).reduce((sum, expense) => sum + Number(expense.amount), 0);
 
-    // Calculate payment method breakdowns based on payment_method field
+    // Calculate payment method breakdowns using actual paid amounts
     const cashRevenue = (sessions || []).reduce((sum, session) => 
-      session.payment_method === 'Cash' ? sum + Number(session.price) : sum, 0);
+      session.payment_method === 'Cash' ? sum + calculateActualPaidAmount(session) : sum, 0);
     const thaiQrRevenue = (sessions || []).reduce((sum, session) => 
-      session.payment_method === 'Thai QR Code' ? sum + Number(session.price) : sum, 0);
+      session.payment_method === 'Thai QR Code' ? sum + calculateActualPaidAmount(session) : sum, 0);
     const wechatRevenue = (sessions || []).reduce((sum, session) => 
-      session.payment_method === 'WeChat' ? sum + Number(session.price) : sum, 0);
+      session.payment_method === 'WeChat' ? sum + calculateActualPaidAmount(session) : sum, 0);
     const alipayRevenue = (sessions || []).reduce((sum, session) => 
-      session.payment_method === 'Alipay' ? sum + Number(session.price) : sum, 0);
+      session.payment_method === 'Alipay' ? sum + calculateActualPaidAmount(session) : sum, 0);
     const fxCashRevenue = (sessions || []).reduce((sum, session) => 
-      session.payment_method === 'FX Cash (other than THB)' ? sum + Number(session.price) : sum, 0);
+      session.payment_method === 'FX Cash (other than THB)' ? sum + calculateActualPaidAmount(session) : sum, 0);
 
     const shopRevenue = sessionRevenue - sessionPayouts + therapistExpensesTotal - shopExpensesTotal;
     const totalRevenue = sessionRevenue + therapistExpensesTotal;

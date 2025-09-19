@@ -8,16 +8,21 @@ interface RoomListProps {
 }
 
 export default function RoomList({ rooms, activeSessions = [], onRoomStatusChange }: RoomListProps) {
-  // Force re-render every second to update timers
+  // Force re-render every second to update timers (only when there are active sessions)
   const [, forceUpdate] = React.useState({});
   
   React.useEffect(() => {
+    // Only run timer if there are active sessions
+    if (activeSessions.length === 0) {
+      return;
+    }
+    
     const interval = setInterval(() => {
       forceUpdate({});
     }, 1000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [activeSessions.length]);
 
 
   const getSessionForRoom = (roomId: string) => {

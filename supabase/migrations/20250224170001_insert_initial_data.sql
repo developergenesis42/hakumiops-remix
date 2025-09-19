@@ -31,11 +31,8 @@ INSERT INTO services (category, room_type, name, duration, price, payout) VALUES
   ('Couple', 'VIP Jacuzzi', '60 min Couple VIP', 60, 8500.00, 3000.00),
   ('Couple', 'VIP Jacuzzi', '90 min Couple VIP', 90, 9000.00, 3500.00);
 
--- Insert sample therapists
-INSERT INTO therapists (name, is_on_duty, status, check_in_time) VALUES
-  ('Sarah Johnson', true, 'Available', NOW()),
-  ('Emma Wilson', true, 'Rostered', NULL),
-  ('Lisa Chen', true, 'Available', NOW());
+-- Sample therapists removed - now managed through the application
+-- Use the "Add Therapist" button in the UI to add therapists
 
 -- Disable Row Level Security (RLS) for spa operations app
 -- This app doesn't require user authentication, so we can disable RLS

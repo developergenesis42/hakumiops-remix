@@ -9,6 +9,7 @@ interface TherapistGridProps {
   onTherapistClick?: (therapist: Therapist) => void;
   onBookSession?: (therapistId: string) => void;
   onAddExpense?: (therapistId: string) => void;
+  onPayoutTherapist?: (therapistId: string) => void;
   onDepartTherapist?: (therapistId: string) => void;
   onModifySession?: (sessionId: string) => void;
   onBeginSessionTimer?: (sessionId: string) => void;
@@ -27,6 +28,7 @@ export default function TherapistGrid({
   onTherapistClick,
   onBookSession,
   onAddExpense,
+  onPayoutTherapist,
   onDepartTherapist,
   onModifySession,
   onBeginSessionTimer,
@@ -76,6 +78,7 @@ export default function TherapistGrid({
           onTherapistClick={onTherapistClick}
           onBookSession={onBookSession}
           onAddExpense={onAddExpense}
+          onPayoutTherapist={onPayoutTherapist}
           onDepartTherapist={onDepartTherapist}
           onModifySession={onModifySession}
           onBeginSessionTimer={onBeginSessionTimer}

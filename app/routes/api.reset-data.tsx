@@ -21,9 +21,8 @@ export async function action({ request }: ActionFunctionArgs) {
       'bookings',
       'sessions', 
       'therapist_expenses',
-      'shop_expenses',
-      'walkouts',
       'daily_reports'
+      // Note: walkouts and shop_expenses preserved for historical analysis
     ];
 
     for (const table of tablesToClear) {
@@ -83,9 +82,11 @@ export async function action({ request }: ActionFunctionArgs) {
     console.log("🗑️ Cleared data:");
     console.log("  - All bookings");
     console.log("  - All sessions");
-    console.log("  - All expenses");
-    console.log("  - All walkouts");
+    console.log("  - All therapist expenses");
     console.log("  - All daily reports");
+    console.log("📊 Preserved data:");
+    console.log("  - Walkouts (for analytics and historical tracking)");
+    console.log("  - Shop expenses (for analytics and historical tracking)");
 
     return json({ 
       success: true, 

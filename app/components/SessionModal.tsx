@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Service, ServiceCategory, Room, Therapist, BookingWithDetails, AddonItem } from '../types';
+import { Service, ServiceCategory, Room, Therapist, BookingWithDetails, AddonItem, SessionWithDetails } from '../types';
 import { usePrintNode } from '~/hooks/usePrintNode';
 
 // Utility function to round time to nearest 5-minute increment
@@ -65,6 +65,10 @@ interface SessionModalProps {
   bookingId?: string;
   bookingNote?: string;
   bookingData?: BookingWithDetails;
+  // Modification mode props
+  modificationMode?: boolean;
+  modifyingSessionId?: string;
+  selectedSessionForModify?: SessionWithDetails;
 }
 
 export default function SessionModal({
@@ -76,7 +80,10 @@ export default function SessionModal({
   preselectedTherapistId,
   bookingId,
   bookingNote,
-  bookingData
+  bookingData,
+  modificationMode = false,
+  modifyingSessionId: _modifyingSessionId, // eslint-disable-line @typescript-eslint/no-unused-vars
+  selectedSessionForModify
 }: SessionModalProps) {
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory | ''>('');
   const [selectedServiceId, setSelectedServiceId] = useState<number | ''>('');
@@ -113,7 +120,45 @@ export default function SessionModal({
       setCustomAddonAmount('');
       setNotes('');
       
-      if (bookingId && bookingData) {
+      if (modificationMode && selectedSessionForModify) {
+        // Opening for session modification - pre-populate from session data
+        setIsFromBooking(false);
+        const session = selectedSessionForModify;
+        
+        // Service data
+        if (session.service) {
+          setSelectedCategory(session.service.category);
+          setSelectedServiceId(session.service_id);
+        }
+        
+        // Room data
+        setSelectedRoomId(session.room_id || '');
+        
+        // Therapist data
+        if (session.therapist_ids && session.therapist_ids.length > 0) {
+          setSelectedTherapist1Id(session.therapist_ids[0]);
+          
+          if (session.therapist_ids.length > 1) {
+            setSelectedTherapist2Id(session.therapist_ids[1]);
+          } else {
+            setSelectedTherapist2Id('');
+          }
+        }
+        
+        // Payment data (from session metadata)
+        setDiscount((session.discount as 0 | 200 | 300) || 0);
+        setWob(session.wob || 'W');
+        setVipNumber(session.vip_number || '');
+        setNationality(session.nationality || 'Chinese');
+        setPaymentMethod(session.payment_method || 'Cash');
+        
+        // Addon data
+        setSelectedAddonItems(session.addon_items?.map(item => item.name) || []);
+        setCustomAddonAmount(session.addon_custom_amount || '');
+        
+        // Notes
+        setNotes(session.notes || '');
+      } else if (bookingId && bookingData) {
         // Opening from booking - pre-populate from booking data
         setIsFromBooking(true);
         const service = bookingData.service;
@@ -151,7 +196,7 @@ export default function SessionModal({
         setSelectedRoomId('');
       }
     }
-  }, [isOpen, bookingId, bookingData, preselectedTherapistId]);
+  }, [isOpen, bookingId, bookingData, preselectedTherapistId, modificationMode, selectedSessionForModify]);
 
   // Additional useEffect to handle booking data changes after modal is already open
   useEffect(() => {
@@ -258,7 +303,7 @@ export default function SessionModal({
       setIsPrinting(true);
       setPrintError(null);
       
-      // Call the original confirm handler first (create session)
+      // Call the original confirm handler first (create or modify session)
       onConfirmSession({
         serviceId: selectedServiceId as number,
         therapistIds,
@@ -274,58 +319,65 @@ export default function SessionModal({
         notes: notes || undefined
       });
       
-      // Create rounded timestamp for the sales slip
-      const now = new Date();
-      const roundedTime = roundToNearestFiveMinutes(now);
-      
-      // Get default printer and print receipt automatically
-      const defaultPrinter = await getDefaultPrinter();
-      
-      if (!defaultPrinter) {
-        throw new Error('No printer available. Please check your printer setup.');
+      // Only print if not in modification mode (for new sessions)
+      // For modifications, we'll handle printing in the parent component
+      if (!modificationMode) {
+        // Create rounded timestamp for the sales slip
+        const now = new Date();
+        const roundedTime = roundToNearestFiveMinutes(now);
+        
+        // Get default printer and print receipt automatically
+        const defaultPrinter = await getDefaultPrinter();
+        
+        if (!defaultPrinter) {
+          throw new Error('No printer available. Please check your printer setup.');
+        }
+        
+        const receiptData = {
+          sessionId: `temp-${Date.now()}`, // Temporary ID
+          clientName: 'Walk-in Customer',
+          service: selectedService.name,
+          duration: selectedService.duration,
+          price: Math.max(0, selectedService.price - (discount || 0)),
+          payout: selectedService.payout,
+          therapist: [
+            selectedTherapist1.name,
+            ...(selectedTherapist2 ? [selectedTherapist2.name] : [])
+          ].join(', '),
+          room: selectedRoom.name,
+          startTime: roundedTime.toLocaleTimeString('th-TH', { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: false 
+          }),
+          endTime: new Date(roundedTime.getTime() + selectedService.duration * 60000).toLocaleTimeString('th-TH', { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            hour12: false 
+          }),
+          timestamp: roundedTime.toLocaleString(),
+          paymentMethod: paymentMethod,
+          discount: discount || 0,
+          wob: wob || 'W',
+          vip_number: vipNumber || undefined,
+          addon_items: selectedAddonItems.length > 0 ? selectedAddonItems : undefined,
+          addon_custom_amount: customAddonAmount || undefined,
+          nationality: nationality
+        };
+        
+        // Determine number of copies based on service category
+        let copies = 1;
+        if (selectedService.category === '1 Lady') {
+          copies = 2; // 2 copies for 1 lady service
+        } else if (selectedService.category === '2 Ladies') {
+          copies = 3; // 3 copies for 2 ladies service (1 for each lady + 1 for shop)
+        }
+        
+        // Print the receipt automatically
+        await printReceipt(defaultPrinter.id, receiptData, copies);
       }
       
-      const receiptData = {
-        sessionId: `temp-${Date.now()}`, // Temporary ID
-        clientName: 'Walk-in Customer',
-        service: selectedService.name,
-        duration: selectedService.duration,
-        price: Math.max(0, selectedService.price - (discount || 0)),
-        payout: selectedService.payout,
-        therapist: [
-          selectedTherapist1.name,
-          ...(selectedTherapist2 ? [selectedTherapist2.name] : [])
-        ].join(', '),
-        room: selectedRoom.name,
-        startTime: roundedTime.toLocaleTimeString('th-TH', { 
-          hour: '2-digit', 
-          minute: '2-digit',
-          hour12: false 
-        }),
-        endTime: new Date(roundedTime.getTime() + selectedService.duration * 60000).toLocaleTimeString('th-TH', { 
-          hour: '2-digit', 
-          minute: '2-digit',
-          hour12: false 
-        }),
-        timestamp: roundedTime.toLocaleString(),
-        paymentMethod: 'Cash',
-        discount: discount || 0,
-        wob: wob || 'W',
-        vip_number: vipNumber || undefined
-      };
-      
-      // Determine number of copies based on service category
-      let copies = 1;
-      if (selectedService.category === '1 Lady') {
-        copies = 2; // 2 copies for 1 lady service
-      } else if (selectedService.category === '2 Ladies') {
-        copies = 3; // 3 copies for 2 ladies service (1 for each lady + 1 for shop)
-      }
-      
-      // Print the receipt automatically
-      await printReceipt(defaultPrinter.id, receiptData, copies);
-      
-      // Close modal after successful printing
+      // Close modal after successful operation
       onClose();
       
     } catch (err) {
@@ -367,14 +419,20 @@ export default function SessionModal({
           animation: fadeIn 0.2s ease-out forwards; 
         }
       `}</style>
-      <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
-        <div className="bg-gray-800 rounded-lg p-8 w-full max-w-lg space-y-4 modal-fade-in">
+      <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+        <div className="bg-gray-800 rounded-lg p-6 w-full max-w-6xl space-y-4 modal-fade-in max-h-[95vh] overflow-y-auto">
           <h3 className="text-2xl font-bold text-white">
-            {isFromBooking ? 'Start a Booked Session' : 'Create a New Session'}
+            {modificationMode ? 'Modify Session' : 
+             isFromBooking ? 'Start a Booked Session' : 'Create a New Session'}
           </h3>
           {isFromBooking && (
             <div className="text-sm text-blue-300 bg-blue-900/30 px-3 py-2 rounded-md">
               📋 Information pre-populated from booking
+            </div>
+          )}
+          {modificationMode && (
+            <div className="text-sm text-yellow-300 bg-yellow-900/30 px-3 py-2 rounded-md">
+              ✏️ Modifying live session - all fields can be changed
             </div>
           )}
           
@@ -386,269 +444,289 @@ export default function SessionModal({
             </div>
           )}
 
-          {/* Category Selection */}
-          <div>
-            <label htmlFor="category-select" className="block text-sm font-medium text-gray-300 mb-2">1. Category</label>
-            <select
-              id="category-select"
-              value={selectedCategory}
-              onChange={(e) => {
-                setSelectedCategory(e.target.value as ServiceCategory);
-                setSelectedServiceId('');
-                setSelectedTherapist2Id('');
-              }}
-              disabled={isFromBooking}
-              className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
-            >
-              <option value="">Select category...</option>
-              <option value="1 Lady">1 Lady</option>
-              <option value="2 Ladies">2 Ladies</option>
-              <option value="Couple">Couple</option>
-            </select>
-          </div>
+          {/* Main Form - Two Column Layout */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Left Column - Basic Session Info */}
+            <div className="space-y-4">
+              <div className="bg-gray-700/30 p-3 rounded-lg">
+                <h4 className="text-base font-semibold text-white mb-3">Basic Session Info</h4>
+                
+                {/* Category Selection */}
+                <div className="mb-3">
+                  <label htmlFor="category-select" className="block text-sm font-medium text-gray-300 mb-1">1. Category</label>
+                  <select
+                    id="category-select"
+                    value={selectedCategory}
+                    onChange={(e) => {
+                      setSelectedCategory(e.target.value as ServiceCategory);
+                      setSelectedServiceId('');
+                      setSelectedTherapist2Id('');
+                    }}
+                    disabled={isFromBooking}
+                    className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                  >
+                    <option value="">Select category...</option>
+                    <option value="1 Lady">1 Lady</option>
+                    <option value="2 Ladies">2 Ladies</option>
+                    <option value="Couple">Couple</option>
+                  </select>
+                </div>
 
-          {/* Service Selection */}
-          <div>
-            <label htmlFor="service-select" className="block text-sm font-medium text-gray-300 mb-2">2. Service</label>
-            <select
-              id="service-select"
-              value={selectedServiceId}
-              onChange={(e) => setSelectedServiceId(Number(e.target.value) || '')}
-              disabled={isFromBooking}
-              className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
-            >
-              <option value="">Select service...</option>
-              {filteredServices.map(service => (
-                <option key={service.id} value={service.id}>
-                  {service.name} - ฿{service.price}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Therapist Selection */}
-          <div>
-            <label htmlFor="therapist-select-1" className="block text-sm font-medium text-gray-300 mb-2">3. Therapist(s)</label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <select
-                id="therapist-select-1"
-                value={selectedTherapist1Id}
-                onChange={(e) => setSelectedTherapist1Id(e.target.value)}
-                disabled={isFromBooking}
-                className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
-              >
-                <option value="">Select therapist...</option>
-                {availableTherapists.map(therapist => (
-                  <option key={therapist.id} value={therapist.id}>
-                    {therapist.name}
-                  </option>
-                ))}
-              </select>
-              
-              {selectedCategory === '2 Ladies' && (
-                <select
-                  id="therapist-select-2"
-                  value={selectedTherapist2Id}
-                  onChange={(e) => setSelectedTherapist2Id(e.target.value)}
-                  disabled={isFromBooking}
-                  className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
-                >
-                  <option value="">Select second therapist...</option>
-                  {availableTherapists
-                    .filter(t => t.id !== selectedTherapist1Id)
-                    .map(therapist => (
-                      <option key={therapist.id} value={therapist.id}>
-                        {therapist.name}
+                {/* Service Selection */}
+                <div className="mb-3">
+                  <label htmlFor="service-select" className="block text-sm font-medium text-gray-300 mb-1">2. Service</label>
+                  <select
+                    id="service-select"
+                    value={selectedServiceId}
+                    onChange={(e) => setSelectedServiceId(Number(e.target.value) || '')}
+                    disabled={isFromBooking}
+                    className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                  >
+                    <option value="">Select service...</option>
+                    {filteredServices.map(service => (
+                      <option key={service.id} value={service.id}>
+                        {service.name} - ฿{service.price}
                       </option>
                     ))}
-                </select>
-              )}
-            </div>
-          </div>
+                  </select>
+                </div>
 
-          {/* Room Selection */}
-          <div>
-            <label htmlFor="room-select" className="block text-sm font-medium text-gray-300 mb-2">4. Room</label>
-            <select
-              id="room-select"
-              value={selectedRoomId}
-              onChange={(e) => setSelectedRoomId(e.target.value)}
-              className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
-            >
-              <option value="">Select room...</option>
-              {compatibleRooms.map(room => (
-                <option key={room.id} value={room.id}>
-                  {room.name} ({room.type}) - {room.status === 'Available' ? '✅ Available' : '❌ Occupied'}
-                </option>
-              ))}
-            </select>
-          </div>
+                {/* Therapist Selection */}
+                <div className="mb-3">
+                  <label htmlFor="therapist-select-1" className="block text-sm font-medium text-gray-300 mb-1">3. Therapist(s)</label>
+                  <div className="space-y-2">
+                    <select
+                      id="therapist-select-1"
+                      value={selectedTherapist1Id}
+                      onChange={(e) => setSelectedTherapist1Id(e.target.value)}
+                      disabled={isFromBooking}
+                      className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                    >
+                      <option value="">Select therapist...</option>
+                      {availableTherapists.map(therapist => (
+                        <option key={therapist.id} value={therapist.id}>
+                          {therapist.name}
+                        </option>
+                      ))}
+                    </select>
+                    
+                    {selectedCategory === '2 Ladies' && (
+                      <select
+                        id="therapist-select-2"
+                        value={selectedTherapist2Id}
+                        onChange={(e) => setSelectedTherapist2Id(e.target.value)}
+                        disabled={isFromBooking}
+                        className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                      >
+                        <option value="">Select second therapist...</option>
+                        {availableTherapists
+                          .filter(t => t.id !== selectedTherapist1Id)
+                          .map(therapist => (
+                            <option key={therapist.id} value={therapist.id}>
+                              {therapist.name}
+                            </option>
+                          ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
 
-          {/* Discount, WOB, VIP */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div>
-              <label htmlFor="discount-select" className="block text-sm font-medium text-gray-300 mb-2">5. Discount</label>
-              <select
-                id="discount-select"
-                value={discount}
-                onChange={(e) => setDiscount((Number(e.target.value) as 0 | 200 | 300) || 0)}
-                className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
-              >
-                <option value={0}>No discount</option>
-                <option value={200}>฿200</option>
-                <option value={300}>฿300</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="wob-select" className="block text-sm font-medium text-gray-300 mb-2">6. WOB</label>
-              <select
-                id="wob-select"
-                value={wob}
-                onChange={(e) => setWob(e.target.value as 'W' | 'O' | 'B')}
-                className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
-              >
-                <option value="W">W - Walk-in</option>
-                <option value="O">O - Online</option>
-                <option value="B">B - Booking</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="vip-number-input" className="block text-sm font-medium text-gray-300 mb-2">7. VIP Number</label>
-              <input
-                id="vip-number-input"
-                type="number"
-                min="1"
-                max="1000"
-                value={vipNumber}
-                onChange={(e) => setVipNumber(e.target.value ? parseInt(e.target.value) : '')}
-                placeholder="Enter VIP number (1-1000)"
-                className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
-              />
-            </div>
-          </div>
-
-          {/* Nationality, Payment Method */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label htmlFor="nationality-select" className="block text-sm font-medium text-gray-300 mb-2">8. Nationality</label>
-              <select
-                id="nationality-select"
-                value={nationality}
-                onChange={(e) => setNationality(e.target.value as 'Chinese' | 'Foreigner')}
-                className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
-              >
-                <option value="Chinese">Chinese</option>
-                <option value="Foreigner">Foreigner</option>
-              </select>
-            </div>
-            <div>
-              <label htmlFor="payment-method-select" className="block text-sm font-medium text-gray-300 mb-2">9. Payment Method</label>
-              <select
-                id="payment-method-select"
-                value={paymentMethod}
-                onChange={(e) => setPaymentMethod(e.target.value as 'Cash' | 'Thai QR Code' | 'WeChat' | 'Alipay' | 'FX Cash (other than THB)')}
-                className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
-              >
-                <option value="Cash">Cash</option>
-                <option value="Thai QR Code">Thai QR Code</option>
-                <option value="WeChat">WeChat</option>
-                <option value="Alipay">Alipay</option>
-                <option value="FX Cash (other than THB)">FX Cash (other than THB)</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Add-on Section */}
-          <div>
-            <div className="block text-sm font-medium text-gray-300 mb-3">10. Add-ons</div>
-            <div className="space-y-3">
-              {/* Add-on Items */}
-              <div>
-                <p className="text-sm text-gray-400 mb-2">Select add-on items:</p>
-                <div className="space-y-2">
-                  {ADDON_ITEMS.map((item) => (
-                    <label key={item.name} htmlFor={`addon-${item.name}`} className="flex items-center space-x-3 cursor-pointer">
-                      <input
-                        id={`addon-${item.name}`}
-                        type="checkbox"
-                        checked={selectedAddonItems.includes(item.name)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedAddonItems(prev => [...prev, item.name]);
-                          } else {
-                            setSelectedAddonItems(prev => prev.filter(name => name !== item.name));
-                          }
-                        }}
-                        className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
-                      />
-                      <span className="text-white">
-                        {item.name}: ฿{item.price}
-                      </span>
-                    </label>
-                  ))}
+                {/* Room Selection */}
+                <div>
+                  <label htmlFor="room-select" className="block text-sm font-medium text-gray-300 mb-1">4. Room</label>
+                  <select
+                    id="room-select"
+                    value={selectedRoomId}
+                    onChange={(e) => setSelectedRoomId(e.target.value)}
+                    className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                  >
+                    <option value="">Select room...</option>
+                    {compatibleRooms.map(room => (
+                      <option key={room.id} value={room.id}>
+                        {room.name} ({room.type}) - {room.status === 'Available' ? '✅ Available' : '❌ Occupied'}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
-              
-              {/* Custom Add-on Amount */}
+            </div>
+
+            {/* Right Column - Payment & Customer Details */}
+            <div className="space-y-4">
+              <div className="bg-gray-700/30 p-3 rounded-lg">
+                <h4 className="text-base font-semibold text-white mb-3">Payment & Customer Details</h4>
+                
+                {/* Discount, WOB, VIP */}
+                <div className="grid grid-cols-1 gap-3 mb-3">
+                  <div>
+                    <label htmlFor="discount-select" className="block text-sm font-medium text-gray-300 mb-1">5. Discount</label>
+                    <select
+                      id="discount-select"
+                      value={discount}
+                      onChange={(e) => setDiscount((Number(e.target.value) as 0 | 200 | 300) || 0)}
+                      className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                    >
+                      <option value={0}>No discount</option>
+                      <option value={200}>฿200</option>
+                      <option value={300}>฿300</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="wob-select" className="block text-sm font-medium text-gray-300 mb-1">6. WOB</label>
+                    <select
+                      id="wob-select"
+                      value={wob}
+                      onChange={(e) => setWob(e.target.value as 'W' | 'O' | 'B')}
+                      className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                    >
+                      <option value="W">W - Walk-in</option>
+                      <option value="O">O - Online</option>
+                      <option value="B">B - Booking</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="vip-number-input" className="block text-sm font-medium text-gray-300 mb-1">7. VIP Number</label>
+                    <input
+                      id="vip-number-input"
+                      type="number"
+                      min="1"
+                      max="1000"
+                      value={vipNumber}
+                      onChange={(e) => setVipNumber(e.target.value ? parseInt(e.target.value) : '')}
+                      placeholder="Enter VIP number (1-1000)"
+                      className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                    />
+                  </div>
+                </div>
+
+                {/* Nationality, Payment Method */}
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <label htmlFor="nationality-select" className="block text-sm font-medium text-gray-300 mb-1">8. Nationality</label>
+                    <select
+                      id="nationality-select"
+                      value={nationality}
+                      onChange={(e) => setNationality(e.target.value as 'Chinese' | 'Foreigner')}
+                      className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                    >
+                      <option value="Chinese">Chinese</option>
+                      <option value="Foreigner">Foreigner</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="payment-method-select" className="block text-sm font-medium text-gray-300 mb-1">9. Payment Method</label>
+                    <select
+                      id="payment-method-select"
+                      value={paymentMethod}
+                      onChange={(e) => setPaymentMethod(e.target.value as 'Cash' | 'Thai QR Code' | 'WeChat' | 'Alipay' | 'FX Cash (other than THB)')}
+                      className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                    >
+                      <option value="Cash">Cash</option>
+                      <option value="Thai QR Code">Thai QR Code</option>
+                      <option value="WeChat">WeChat</option>
+                      <option value="Alipay">Alipay</option>
+                      <option value="FX Cash (other than THB)">FX Cash (other than THB)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Add-ons and Notes Section */}
+          <div className="bg-gray-700/30 p-3 rounded-lg">
+            <h4 className="text-base font-semibold text-white mb-3">Add-ons & Notes</h4>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Add-on Items */}
               <div>
-                <label htmlFor="custom-addon-amount" className="block text-sm text-gray-400 mb-2">Custom amount (THB):</label>
-                <input
-                  id="custom-addon-amount"
-                  type="number"
-                  min="0"
-                  max="3000"
-                  value={customAddonAmount}
-                  onChange={(e) => setCustomAddonAmount(e.target.value ? parseInt(e.target.value) : '')}
-                  placeholder="Enter custom amount (0-3000)"
-                  className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                <div className="block text-sm font-medium text-gray-300 mb-2">10. Add-ons</div>
+                <div className="space-y-2">
+                  <div>
+                    <p className="text-sm text-gray-400 mb-1">Select add-on items:</p>
+                    <div className="space-y-1">
+                      {ADDON_ITEMS.map((item) => (
+                        <label key={item.name} htmlFor={`addon-${item.name}`} className="flex items-center space-x-3 cursor-pointer">
+                          <input
+                            id={`addon-${item.name}`}
+                            type="checkbox"
+                            checked={selectedAddonItems.includes(item.name)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedAddonItems(prev => [...prev, item.name]);
+                              } else {
+                                setSelectedAddonItems(prev => prev.filter(name => name !== item.name));
+                              }
+                            }}
+                            className="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 focus:ring-2"
+                          />
+                          <span className="text-white">
+                            {item.name}: ฿{item.price}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* Custom Add-on Amount */}
+                  <div>
+                    <label htmlFor="custom-addon-amount" className="block text-sm text-gray-400 mb-1">Custom amount (THB):</label>
+                    <input
+                      id="custom-addon-amount"
+                      type="number"
+                      min="0"
+                      max="3000"
+                      value={customAddonAmount}
+                      onChange={(e) => setCustomAddonAmount(e.target.value ? parseInt(e.target.value) : '')}
+                      placeholder="Enter custom amount (0-3000)"
+                      className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Notes Section */}
+              <div>
+                <label htmlFor="notes-input" className="block text-sm font-medium text-gray-300 mb-1">
+                  11. Notes
+                </label>
+                <textarea
+                  id="notes-input"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Enter notes about the session or customer..."
+                  rows={3}
+                  className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2 resize-none"
                 />
               </div>
             </div>
           </div>
 
-          {/* Notes Section */}
-          <div>
-            <label htmlFor="notes-input" className="block text-sm font-medium text-gray-300 mb-2">
-              11. Notes
-            </label>
-            <input
-              id="notes-input"
-              type="text"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Enter notes about the session or customer..."
-              className="w-full bg-gray-700 text-white border-gray-600 rounded-md p-2"
-            />
-          </div>
-
-          {/* Review Summary */}
-          <div className="bg-gray-900 p-4 rounded-md text-center">
+          {/* Review Summary - Compact */}
+          <div className="bg-gray-900 p-3 rounded-md">
             {selectedService && selectedTherapist1 && selectedRoom ? (
-              <div>
-                <p className="text-white">
-                  <span className="font-bold">{selectedService.name}</span> with{' '}
+              <div className="text-center">
+                <p className="text-white text-sm">
+                  📋 <span className="font-bold">{selectedService.name}</span> with{' '}
                   <span className="font-bold">
                     {selectedTherapist1.name}
                     {selectedTherapist2 && ` & ${selectedTherapist2.name}`}
                   </span>{' '}
                   in <span className="font-bold">{selectedRoom.name}</span>
+                  {' | '}
+                  <span className="text-gray-300">
+                    {selectedService.duration}min | ฿{Math.max(0, selectedService.price - (discount || 0))} (−฿{discount}) | Payout: ฿{selectedService.payout}
+                    {addonTotal > 0 && ` | Add-ons: ฿${addonTotal}`}
+                  </span>
                 </p>
-                <p className="text-sm text-gray-400 mt-1">
-                  Duration: {selectedService.duration} min | Price: ฿{Math.max(0, selectedService.price - (discount || 0))} (−฿{discount}) | Payout: ฿{selectedService.payout}
-                </p>
-                {addonTotal > 0 && (
-                  <p className="text-sm text-blue-300 mt-1">
-                    Add-ons: ฿{addonTotal} {selectedAddonItems.length > 0 && `(${selectedAddonItems.join(', ')})`} {customAddonAmount && `+ Custom: ฿${customAddonAmount}`}
-                  </p>
-                )}
               </div>
             ) : (
-              <p className="text-gray-400">Please complete all selections</p>
+              <p className="text-gray-400 text-sm text-center">Please complete all selections</p>
             )}
           </div>
 
           {/* Action Buttons */}
-          <div className="flex justify-between items-center pt-4">
+          <div className="flex justify-between items-center pt-2">
             <button
               onClick={handleCancel}
               disabled={isPrinting}

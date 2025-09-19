@@ -1,8 +1,8 @@
 
 import { useLoaderData } from "@remix-run/react";
 import React, { useState, useCallback, useMemo, useRef } from "react";
-// Realtime subscriptions removed - will be handled differently
-// Validation will be handled on the server side in API routes
+// Real-time subscriptions enabled for multi-device synchronization
+import { subscribeToAllData } from "~/utils/realtime.client";
 import RoomList from "~/components/RoomList";
 import TherapistGrid from "~/components/TherapistGrid";
 import AddTherapistModal from "~/components/AddTherapistModal";
@@ -10,12 +10,13 @@ import SessionModal from "~/components/SessionModal";
 import BookingModal from "~/components/BookingModal";
 import BookingViewModal from "~/components/BookingViewModal";
 import ExpenseModal from "~/components/ExpenseModal";
+import PayoutModal from "~/components/PayoutModal";
 import DepartureModal from "~/components/DepartureModal";
 import ShopExpenseModal from "~/components/ShopExpenseModal";
 import ReportModal from "~/components/ReportModal";
-import ModifySessionModal from "~/components/ModifySessionModal";
 import MonthlyReportModal from "~/components/MonthlyReportModal";
 import EndOfDayModal from "~/components/EndOfDayModal";
+import { usePrintNode } from "~/hooks/usePrintNode";
 // ClientOnly import removed
 import { Room, Therapist, SessionWithDetails, BookingWithDetails, ShopExpense, Walkout, FinancialSummary, AddonItem } from "~/types";
 
@@ -177,12 +178,15 @@ export default function Home() {
   const [selectedTherapistForBooking, setSelectedTherapistForBooking] = useState<Therapist | null>(null);
   const [isExpenseModalOpen, setIsExpenseModalOpen] = useState(false);
   const [selectedTherapistForExpense, setSelectedTherapistForExpense] = useState<Therapist | null>(null);
+  const [isPayoutModalOpen, setIsPayoutModalOpen] = useState(false);
+  const [selectedTherapistForPayout, setSelectedTherapistForPayout] = useState<Therapist | null>(null);
   const [isDepartureModalOpen, setIsDepartureModalOpen] = useState(false);
   const [selectedTherapistForDeparture, setSelectedTherapistForDeparture] = useState<Therapist | null>(null);
   const [isShopExpenseModalOpen, setIsShopExpenseModalOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
-  const [isModifySessionModalOpen, setIsModifySessionModalOpen] = useState(false);
   const [selectedSessionForModify, setSelectedSessionForModify] = useState<SessionWithDetails | null>(null);
+  const [modificationMode, setModificationMode] = useState(false);
+  const [modifyingSessionId, setModifyingSessionId] = useState<string | null>(null);
   const [isMonthlyReportModalOpen, setIsMonthlyReportModalOpen] = useState(false);
   const [isEndOfDayModalOpen, setIsEndOfDayModalOpen] = useState(false);
   const [bookings, setBookings] = useState<BookingWithDetails[]>(initialBookings);
@@ -197,12 +201,31 @@ export default function Home() {
   const [walkoutReason, setWalkoutReason] = useState<string>('');
   const [shopExpenses, setShopExpenses] = useState<ShopExpense[]>(initialShopExpenses);
   const [financials, setFinancials] = useState<FinancialSummary>(initialFinancials);
-  const [sessionTimers, setSessionTimers] = useState<Record<string, NodeJS.Timeout>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const completingSessions = useRef<Set<string>>(new Set());
+  const sessionTimersRef = useRef<Record<string, NodeJS.Timeout>>({});
+  
+  // Debug wrapper for setIsLoading (disabled for testing)
+  const setIsLoadingWithLog = (value: boolean) => {
+    // console.log('🔄 setIsLoading called:', value, reason ? `(${reason})` : '');
+    setIsLoading(value);
+  };
   const [error, setError] = useState<string | null>(null);
+
+  // PrintNode hook for printing receipts
+  const { getDefaultPrinter, printReceipt } = usePrintNode();
 
   // Services data from database
   const services = useMemo(() => initialServices, [initialServices]);
+
+  // Helper function to round time to nearest 5 minutes
+  const roundToNearestFiveMinutes = (date: Date): Date => {
+    const minutes = date.getMinutes();
+    const roundedMinutes = Math.round(minutes / 5) * 5;
+    const roundedDate = new Date(date);
+    roundedDate.setMinutes(roundedMinutes, 0, 0);
+    return roundedDate;
+  };
 
   // Handler functions
   const handleAddTherapist = async (therapistData: Omit<Therapist, 'id' | 'created_at' | 'updated_at'>) => {
@@ -335,6 +358,22 @@ export default function Home() {
     }
   };
 
+  const handlePayoutTherapist = (therapistId: string) => {
+    const therapist = therapists.find(t => t.id === therapistId);
+    if (therapist) {
+      setSelectedTherapistForPayout(therapist);
+      setIsPayoutModalOpen(true);
+    }
+  };
+
+  const handlePrintPayout = (therapistId: string) => {
+    // TODO: Implement payout slip printing
+    console.log('Printing payout slip for therapist:', therapistId);
+    // For now, just close the modal
+    setIsPayoutModalOpen(false);
+    setSelectedTherapistForPayout(null);
+  };
+
   const handleDepartTherapist = (therapistId: string) => {
     const therapist = therapists.find(t => t.id === therapistId);
     if (therapist) {
@@ -362,6 +401,11 @@ export default function Home() {
     addon_custom_amount?: number;
     notes?: string;
   }) => {
+    if (modificationMode && modifyingSessionId) {
+      // Modify existing session
+      handleModifySessionUnified(modifyingSessionId, sessionData);
+    } else {
+      // Create new session
     startSession(
       sessionData.serviceId,
       sessionData.therapistIds,
@@ -376,6 +420,7 @@ export default function Home() {
       sessionData.addon_custom_amount,
       sessionData.notes
     );
+    }
   };
 
   const handleUpdateBooking = useCallback(async (bookingId: string, updates: {
@@ -707,9 +752,457 @@ export default function Home() {
     const session = activeSessions.find(s => s.id === sessionId);
     if (session) {
       setSelectedSessionForModify(session);
-      setIsModifySessionModalOpen(true);
+      setModificationMode(true);
+      setModifyingSessionId(sessionId);
+      setIsSessionModalOpen(true);
     }
   }, [activeSessions]);
+
+  const completeSession = useCallback(async (sessionId: string) => {
+    // Prevent multiple completion calls for the same session using ref
+    if (completingSessions.current.has(sessionId)) {
+      return;
+    }
+
+    const sessionIndex = activeSessions.findIndex(s => s.id === sessionId);
+    if (sessionIndex === -1) {
+      return;
+    }
+
+    const session = activeSessions[sessionIndex];
+    
+    // Prevent multiple completion calls for the same session
+    if (session.status === 'Completed') {
+      return;
+    }
+
+    // Mark session as being completed
+    completingSessions.current.add(sessionId);
+    
+    // Clear any remaining timers for this session
+    if (sessionTimersRef.current[sessionId]) {
+      clearInterval(sessionTimersRef.current[sessionId]);
+      delete sessionTimersRef.current[sessionId];
+    }
+    if (sessionTimersRef.current[`${sessionId}_timeout`]) {
+      clearTimeout(sessionTimersRef.current[`${sessionId}_timeout`]);
+      delete sessionTimersRef.current[`${sessionId}_timeout`];
+    }
+    
+    // Don't block completion due to loading state - this is critical for auto-completion
+    // if (isLoading) {
+    //   console.log(`Session ${sessionId} completion blocked by isLoading state`);
+    //   completingSessions.current.delete(sessionId);
+    //   return;
+    // }
+    
+    // Timer is already cleared by the timer function when it expires
+    
+    // Only show loading for the essential database update
+    setIsLoadingWithLog(true);
+    setError(null);
+
+    try {
+      // 1. Update session status to completed in database
+      const response = await fetch('/api/sessions?action=update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          updates: {
+            status: 'Completed',
+            end_time: new Date().toISOString()
+          }
+        })
+      });
+      
+      const result = await response.json();
+
+      if (!response.ok) {
+        setError(result.error);
+        return;
+      }
+
+      // 2. Update UI state immediately (no loading indicator needed)
+      const completedSession = { ...session, status: 'Completed' as const };
+      
+      // Update local state
+      setActiveSessions(prev => prev.filter(s => s.id !== sessionId));
+      setCompletedSessions(prev => [...prev, completedSession]);
+      
+      // Update therapist statuses (local only)
+      setTherapists(prev => prev.map(t => 
+        session.therapist_ids.includes(t.id) 
+          ? { 
+              ...t, 
+              status: 'Available' as const,
+              completed_room_ids: [...(t.completed_room_ids || []), session.room_id]
+            }
+          : t
+      ));
+      
+      // Update room status (local only)
+      setRooms(prev => prev.map(room => 
+        room.id === session.room_id 
+          ? { ...room, status: 'Available' as const }
+          : room
+      ));
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to complete session');
+    } finally {
+      setIsLoadingWithLog(false);
+      // Clean up the completion tracking
+      completingSessions.current.delete(sessionId);
+    }
+
+    // 3. Background updates (no loading indicator)
+    // Update therapists in database
+      const updatedTherapists = therapists.map(t => 
+        session.therapist_ids.includes(t.id) 
+          ? { 
+              ...t, 
+              status: 'Available' as const,
+              completed_room_ids: [...(t.completed_room_ids || []), session.room_id]
+            }
+          : t
+      );
+      
+    const therapistUpdates = updatedTherapists
+      .filter(t => session.therapist_ids.includes(t.id))
+      .map(t => ({
+        id: t.id,
+        updates: {
+          status: t.status,
+          completed_room_ids: t.completed_room_ids
+        }
+      }));
+
+    // Update therapists in background
+    Promise.allSettled(
+      therapistUpdates.map(therapist => 
+        fetch('/api/therapists?action=update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(therapist)
+        })
+      )
+    ).catch(error => {
+      console.error('Failed to update therapists in background:', error);
+    });
+
+    // Update financials in background
+    fetch('/api/financials?action=update', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+        sessionId,
+                updates: {
+          status: 'Completed',
+          end_time: new Date().toISOString()
+        }
+      })
+    })
+      .catch(error => {
+        console.error('Failed to update financials in background:', error);
+      });
+  }, [activeSessions, setTherapists, setCompletedSessions, setActiveSessions, therapists]);
+
+  const startTimerForSession = useCallback((sessionId: string, endTime: Date) => {
+    const updateTimer = () => {
+      const now = new Date();
+      const remaining = endTime.getTime() - now.getTime();
+      
+      if (remaining <= 0) {
+        console.log(`Session ${sessionId} timer expired, auto-completing`);
+        // Session finished - clear timer immediately to prevent multiple calls
+        if (sessionTimersRef.current[sessionId]) {
+          clearInterval(sessionTimersRef.current[sessionId]);
+          delete sessionTimersRef.current[sessionId];
+        }
+        // Now call completeSession
+        completeSession(sessionId);
+        return;
+      }
+    };
+
+    // Run immediately to check if already expired
+    updateTimer();
+    
+    // Set up interval with shorter frequency for more precise timing
+    const interval = setInterval(updateTimer, 500); // Check every 500ms instead of 1000ms
+    sessionTimersRef.current[sessionId] = interval;
+    
+    // Also set up a one-time timeout for the exact end time as a backup
+    const timeoutMs = endTime.getTime() - Date.now();
+    if (timeoutMs > 0) {
+      const timeoutId = setTimeout(() => {
+        console.log(`Session ${sessionId} timeout backup triggered`);
+        // Clear the interval if it's still running
+        if (sessionTimersRef.current[sessionId]) {
+          clearInterval(sessionTimersRef.current[sessionId]);
+          delete sessionTimersRef.current[sessionId];
+        }
+        completeSession(sessionId);
+      }, timeoutMs);
+      
+      // Store timeout ID for cleanup
+      sessionTimersRef.current[`${sessionId}_timeout`] = timeoutId;
+    }
+  }, [completeSession]);
+
+  const handleModifySessionUnified = useCallback(async (sessionId: string, sessionData: {
+    serviceId: number;
+    therapistIds: string[];
+    roomId: string;
+    discount?: 0 | 200 | 300;
+    wob?: 'W' | 'O' | 'B';
+    vip_number?: number;
+    nationality?: 'Chinese' | 'Foreigner';
+    payment_method?: 'Cash' | 'Thai QR Code' | 'WeChat' | 'Alipay' | 'FX Cash (other than THB)';
+    addon_items?: AddonItem[];
+    addon_custom_amount?: number;
+    notes?: string;
+  }) => {
+    console.log('Modifying session with unified data:', sessionId, sessionData);
+    
+    const session = activeSessions.find(s => s.id === sessionId);
+    if (!session) {
+      setError('Session not found');
+      return;
+    }
+
+    const originalService = services.find(s => s.id === session.service_id);
+    const newService = services.find(s => s.id === sessionData.serviceId);
+    const originalRoom = rooms.find(r => r.id === session.room_id);
+    const newRoom = rooms.find(r => r.id === sessionData.roomId);
+
+    if (!originalService || !newService || !originalRoom || !newRoom) {
+      setError('Invalid service or room selection');
+      return;
+    }
+
+      // Validate new therapists are available
+    const unavailableTherapists = sessionData.therapistIds
+        .map(id => therapists.find(t => t.id === id))
+        .filter(t => !t || (t.status !== 'Available' && !session.therapist_ids.includes(t.id)));
+      
+      if (unavailableTherapists.length > 0) {
+        setError(`${unavailableTherapists.map(t => t?.name).join(', ')} is/are not available.`);
+        return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Update session in database with ALL fields
+      const response = await fetch('/api/sessions?action=update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          updates: {
+            service_id: sessionData.serviceId,
+            room_id: sessionData.roomId,
+            therapist_ids: sessionData.therapistIds,
+            duration: newService.duration,
+            price: newService.price,
+            payout: newService.payout,
+            // Add ALL the missing fields
+            discount: sessionData.discount || 0,
+            wob: sessionData.wob || 'W',
+            vip_number: sessionData.vip_number || undefined,
+            nationality: sessionData.nationality || 'Chinese',
+            payment_method: sessionData.payment_method || 'Cash',
+            addon_items: sessionData.addon_items || undefined,
+            addon_custom_amount: sessionData.addon_custom_amount || undefined,
+            notes: sessionData.notes || undefined
+          }
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        setError(result.error);
+        return;
+      }
+
+      // Update therapist statuses if therapists changed
+        const oldTherapistIds = session.therapist_ids;
+      const therapistsToRemove = oldTherapistIds.filter(id => !sessionData.therapistIds.includes(id));
+      const therapistsToAdd = sessionData.therapistIds.filter(id => !oldTherapistIds.includes(id));
+
+        // Remove old therapists from session (set to Available)
+        if (therapistsToRemove.length > 0) {
+          setTherapists(prev => prev.map(t => 
+            therapistsToRemove.includes(t.id) 
+              ? { ...t, status: 'Available' as const }
+              : t
+          ));
+        }
+
+        // Add new therapists to session (set to In Session)
+        if (therapistsToAdd.length > 0) {
+          setTherapists(prev => prev.map(t => 
+            therapistsToAdd.includes(t.id) 
+              ? { ...t, status: 'In Session' as const }
+              : t
+          ));
+      }
+
+      // Update local state with ALL fields
+      setActiveSessions(prev => prev.map(s => {
+        if (s.id === sessionId) {
+          const updatedSession: SessionWithDetails = {
+            ...s,
+            service_id: sessionData.serviceId,
+            room_id: sessionData.roomId,
+            therapist_ids: sessionData.therapistIds,
+            duration: newService.duration,
+            price: newService.price,
+            payout: newService.payout,
+            // Add ALL the missing fields
+            discount: sessionData.discount || 0,
+            wob: sessionData.wob || 'W',
+            vip_number: sessionData.vip_number || undefined,
+            nationality: sessionData.nationality || 'Chinese',
+            payment_method: sessionData.payment_method || 'Cash',
+            addon_items: sessionData.addon_items || undefined,
+            addon_custom_amount: sessionData.addon_custom_amount || undefined,
+            notes: sessionData.notes || undefined,
+            service: {
+              ...newService,
+              category: newService.category as '1 Lady' | '2 Ladies' | 'Couple',
+              room_type: newService.room_type as 'Shower' | 'VIP Jacuzzi'
+            },
+            room: {
+              ...newRoom,
+              status: 'Occupied' as const
+            },
+            therapists: sessionData.therapistIds.map(id => therapists.find(t => t.id === id)).filter(Boolean) as Therapist[]
+          };
+
+          // If session is in progress, recalculate timer
+          if (s.status === 'In Progress' && s.start_time) {
+            const durationDifferenceMs = (newService.duration - originalService.duration) * 60 * 1000;
+            const newEndTime = new Date(new Date(s.end_time || '').getTime() + durationDifferenceMs);
+            updatedSession.end_time = newEndTime.toISOString();
+
+            // Clear existing timer and timeout
+            if (sessionTimersRef.current[s.id]) {
+              clearInterval(sessionTimersRef.current[s.id]);
+              delete sessionTimersRef.current[s.id];
+            }
+            if (sessionTimersRef.current[`${s.id}_timeout`]) {
+              clearTimeout(sessionTimersRef.current[`${s.id}_timeout`]);
+              delete sessionTimersRef.current[`${s.id}_timeout`];
+            }
+
+            // Start new timer with updated end time
+            startTimerForSession(s.id, newEndTime);
+          }
+
+          return updatedSession;
+        }
+        return s;
+      }));
+
+      // Update room statuses if room changed
+      if (originalRoom.id !== newRoom.id) {
+        setRooms(prev => prev.map(room => {
+          if (room.id === originalRoom.id) {
+            return { ...room, status: 'Available' as const };
+          }
+          if (room.id === newRoom.id) {
+            return { ...room, status: 'Occupied' as const };
+          }
+          return room;
+        }));
+      }
+
+      // Print updated receipt for modified session
+      try {
+        const defaultPrinter = await getDefaultPrinter();
+        
+        if (defaultPrinter) {
+          // Create rounded timestamp for the sales slip
+          const now = new Date();
+          const roundedTime = roundToNearestFiveMinutes(now);
+          
+          // Calculate addon total
+          const addonTotal = (sessionData.addon_items || []).reduce((sum, item) => sum + (item.price || 0), 0) + (sessionData.addon_custom_amount || 0);
+          
+          const receiptData = {
+            sessionId: sessionId,
+            clientName: 'Walk-in Customer',
+            service: newService.name,
+            duration: newService.duration,
+            price: Math.max(0, newService.price - (sessionData.discount || 0) + addonTotal),
+            payout: newService.payout,
+            therapist: sessionData.therapistIds.map(id => therapists.find(t => t.id === id)?.name).filter(Boolean).join(', '),
+            room: newRoom.name,
+            startTime: session.start_time ? new Date(session.start_time).toLocaleTimeString('th-TH', { 
+              hour: '2-digit', 
+              minute: '2-digit',
+              hour12: false 
+            }) : roundedTime.toLocaleTimeString('th-TH', { 
+              hour: '2-digit', 
+              minute: '2-digit',
+              hour12: false 
+            }),
+            endTime: session.end_time ? new Date(session.end_time).toLocaleTimeString('th-TH', { 
+              hour: '2-digit', 
+              minute: '2-digit',
+              hour12: false 
+            }) : new Date(roundedTime.getTime() + newService.duration * 60000).toLocaleTimeString('th-TH', { 
+              hour: '2-digit', 
+              minute: '2-digit',
+              hour12: false 
+            }),
+            timestamp: roundedTime.toLocaleString(),
+            paymentMethod: sessionData.payment_method || 'Cash',
+            discount: sessionData.discount || 0,
+            wob: sessionData.wob || 'W',
+            vip_number: sessionData.vip_number || undefined,
+            addon_items: sessionData.addon_items?.map(item => item.name) || undefined,
+            addon_custom_amount: sessionData.addon_custom_amount || undefined,
+            nationality: sessionData.nationality || 'Chinese'
+          };
+          
+          // Determine number of copies based on service category
+          let copies = 1;
+          if (newService.category === '1 Lady') {
+            copies = 2; // 2 copies for 1 lady service
+          } else if (newService.category === '2 Ladies') {
+            copies = 3; // 3 copies for 2 ladies service (1 for each lady + 1 for shop)
+          }
+          
+          // Print the updated receipt
+          await printReceipt(defaultPrinter.id, receiptData, copies);
+          console.log('Updated receipt printed successfully for modified session');
+        } else {
+          console.warn('No printer available for modified session receipt');
+        }
+      } catch (printErr) {
+        console.error('Failed to print receipt for modified session:', printErr);
+        // Don't fail the entire modification if printing fails
+      }
+
+      // Reset modification mode
+      setModificationMode(false);
+      setModifyingSessionId(null);
+      setSelectedSessionForModify(null);
+      setIsSessionModalOpen(false);
+
+      console.log('Session modified successfully with all fields');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to modify session');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeSessions, services, rooms, therapists, sessionTimersRef, startTimerForSession, getDefaultPrinter, printReceipt]);
 
   const handleRoomStatusChange = (roomId: string, status: 'Available' | 'Occupied') => {
     setRooms(prev => prev.map(room => 
@@ -784,11 +1277,13 @@ export default function Home() {
         new Date(booking.start_time) >= tomorrow
       ));
       
-      // Clear today's walkouts (data is archived in daily report)
-      setWalkouts([]);
+      // Keep all walkouts data (preserved for analytics and reporting)
+      // Note: Walkouts are archived in daily report AND kept in database
+      console.log('Walkouts data preserved in database for historical analysis');
       
-      // Clear today's shop expenses (data is archived in daily report)
-      setShopExpenses([]);
+      // Keep all shop expenses data (preserved for analytics and reporting)
+      // Note: Shop expenses are archived in daily report AND kept in database
+      console.log('Shop expenses data preserved in database for historical analysis');
       
       // Reset therapist statuses to 'Rostered' but keep historical data
       const resetTherapists = therapists.map(therapist => ({
@@ -849,9 +1344,15 @@ export default function Home() {
       // Clear completed sessions (data is archived in daily report)
       setCompletedSessions([]);
       
-      // Clear all session timers
-      Object.values(sessionTimers).forEach(timer => clearInterval(timer));
-      setSessionTimers({});
+      // Clear all session timers and timeouts
+      Object.entries(sessionTimersRef.current).forEach(([key, timer]) => {
+        if (key.endsWith('_timeout')) {
+          clearTimeout(timer);
+        } else {
+          clearInterval(timer);
+        }
+      });
+      sessionTimersRef.current = {};
       
       console.log('End of day completed successfully');
       setError(null);
@@ -862,293 +1363,8 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [sessionTimers, therapists, financials, completedSessions, walkouts, shopExpenses, setError, setIsLoading]);
+  }, [therapists, financials, completedSessions, walkouts, shopExpenses, setError, setIsLoading]);
 
-  const completeSession = useCallback(async (sessionId: string) => {
-    const sessionIndex = activeSessions.findIndex(s => s.id === sessionId);
-    if (sessionIndex === -1) return;
-
-    const session = activeSessions[sessionIndex];
-    
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      // Update session status to completed
-      const response = await fetch('/api/sessions?action=update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId,
-          updates: {
-            status: 'Completed',
-            end_time: new Date().toISOString()
-          }
-        })
-      });
-      
-      const result = await response.json();
-
-      if (!response.ok) {
-        setError(result.error);
-        return;
-      }
-
-      // Clear timer
-      if (sessionTimers[sessionId]) {
-        clearInterval(sessionTimers[sessionId]);
-        setSessionTimers(prev => {
-          const newTimers = { ...prev };
-          delete newTimers[sessionId];
-          return newTimers;
-        });
-      }
-
-      // Update therapist statuses and add completed room ID
-      const updatedTherapists = therapists.map(t => 
-        session.therapist_ids.includes(t.id) 
-          ? { 
-              ...t, 
-              status: 'Available' as const,
-              completed_room_ids: [...(t.completed_room_ids || []), session.room_id]
-            }
-          : t
-      );
-      
-      setTherapists(updatedTherapists);
-
-      // Update therapists in database
-      for (const therapist of updatedTherapists) {
-        if (session.therapist_ids.includes(therapist.id)) {
-          try {
-            await fetch('/api/therapists?action=update', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                id: therapist.id,
-                updates: {
-                  status: therapist.status,
-                  completed_room_ids: therapist.completed_room_ids
-                }
-              })
-            });
-          } catch (error) {
-            console.error('Failed to update therapist in database:', error);
-          }
-        }
-      }
-
-      // Update room status
-      setRooms(prev => prev.map(room => 
-        room.id === session.room_id 
-          ? { ...room, status: 'Available' as const }
-          : room
-      ));
-
-      // Add to completed sessions
-      setCompletedSessions(prev => [...prev, { ...session, status: 'Completed' }]);
-
-      // Remove from active sessions
-      setActiveSessions(prev => prev.filter(s => s.id !== sessionId));
-
-      // Recalculate financials
-      try {
-        const financialResponse = await fetch('/api/financials');
-        const financialResult = await financialResponse.json();
-        
-        if (financialResponse.ok && financialResult.data) {
-          setFinancials(financialResult.data);
-        }
-      } catch (error) {
-        console.error('Failed to update financials:', error);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to complete session');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeSessions, sessionTimers, setFinancials, setTherapists, setCompletedSessions, setActiveSessions, setSessionTimers, therapists]);
-
-  const startTimerForSession = useCallback((sessionId: string, endTime: Date) => {
-    const updateTimer = () => {
-      const remaining = endTime.getTime() - new Date().getTime();
-      
-      if (remaining <= 0) {
-        // Session finished
-        completeSession(sessionId);
-        return;
-      }
-
-      // Force re-render by updating a timer state
-      setSessionTimers(prev => ({ ...prev }));
-    };
-
-    updateTimer();
-    const interval = setInterval(updateTimer, 1000);
-    setSessionTimers(prev => ({ ...prev, [sessionId]: interval }));
-  }, [completeSession]);
-
-  const handleConfirmModifySession = useCallback(async (modifyData: {
-    sessionId: string;
-    newServiceId: number;
-    newRoomId: string;
-    newTherapistIds?: string[];
-  }) => {
-    console.log('Modifying session:', modifyData);
-    
-    const session = activeSessions.find(s => s.id === modifyData.sessionId);
-    if (!session) {
-      setError('Session not found');
-      return;
-    }
-
-    const originalService = services.find(s => s.id === session.service_id);
-    const newService = services.find(s => s.id === modifyData.newServiceId);
-    const originalRoom = rooms.find(r => r.id === session.room_id);
-    const newRoom = rooms.find(r => r.id === modifyData.newRoomId);
-
-    if (!originalService || !newService || !originalRoom || !newRoom) {
-      setError('Invalid service or room selection');
-      return;
-    }
-
-    // Handle therapist changes if provided
-    let newTherapistIds = session.therapist_ids;
-    if (modifyData.newTherapistIds) {
-      // Validate new therapists are available
-      const unavailableTherapists = modifyData.newTherapistIds
-        .map(id => therapists.find(t => t.id === id))
-        .filter(t => !t || (t.status !== 'Available' && !session.therapist_ids.includes(t.id)));
-      
-      if (unavailableTherapists.length > 0) {
-        setError(`${unavailableTherapists.map(t => t?.name).join(', ')} is/are not available.`);
-        return;
-      }
-      
-      newTherapistIds = modifyData.newTherapistIds;
-    }
-
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      // Update session in database
-      const response = await fetch('/api/sessions?action=update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: modifyData.sessionId,
-          updates: {
-            service_id: modifyData.newServiceId,
-            room_id: modifyData.newRoomId,
-            therapist_ids: newTherapistIds,
-            duration: newService.duration,
-            price: newService.price,
-            payout: newService.payout
-          }
-        })
-      });
-      
-      const result = await response.json();
-      
-      if (!response.ok) {
-        setError(result.error);
-        return;
-      }
-
-      // Update therapist statuses if therapists changed
-      if (modifyData.newTherapistIds) {
-        const oldTherapistIds = session.therapist_ids;
-        const therapistsToRemove = oldTherapistIds.filter(id => !newTherapistIds.includes(id));
-        const therapistsToAdd = newTherapistIds.filter(id => !oldTherapistIds.includes(id));
-
-        // Remove old therapists from session (set to Available)
-        if (therapistsToRemove.length > 0) {
-          setTherapists(prev => prev.map(t => 
-            therapistsToRemove.includes(t.id) 
-              ? { ...t, status: 'Available' as const }
-              : t
-          ));
-        }
-
-        // Add new therapists to session (set to In Session)
-        if (therapistsToAdd.length > 0) {
-          setTherapists(prev => prev.map(t => 
-            therapistsToAdd.includes(t.id) 
-              ? { ...t, status: 'In Session' as const }
-              : t
-          ));
-        }
-      }
-
-      // Update local state
-      setActiveSessions(prev => prev.map(s => {
-        if (s.id === modifyData.sessionId) {
-          const updatedSession: SessionWithDetails = {
-            ...s,
-            service_id: modifyData.newServiceId,
-            room_id: modifyData.newRoomId,
-            therapist_ids: newTherapistIds,
-            duration: newService.duration,
-            price: newService.price,
-            payout: newService.payout,
-            service: {
-              ...newService,
-              category: newService.category as '1 Lady' | '2 Ladies' | 'Couple',
-              room_type: newService.room_type as 'Shower' | 'VIP Jacuzzi'
-            },
-            room: {
-              ...newRoom,
-              status: 'Occupied' as const
-            },
-            therapists: newTherapistIds.map(id => therapists.find(t => t.id === id)).filter(Boolean) as Therapist[]
-          };
-
-          // If session is in progress, recalculate timer
-          if (s.status === 'In Progress' && s.start_time) {
-            const durationDifferenceMs = (newService.duration - originalService.duration) * 60 * 1000;
-            const newEndTime = new Date(new Date(s.end_time || '').getTime() + durationDifferenceMs);
-            updatedSession.end_time = newEndTime.toISOString();
-
-            // Clear existing timer and start new one
-            if (sessionTimers[s.id]) {
-              clearInterval(sessionTimers[s.id]);
-              setSessionTimers(prev => {
-                const newTimers = { ...prev };
-                delete newTimers[s.id];
-                return newTimers;
-              });
-            }
-
-            // Start new timer with updated end time
-            startTimerForSession(s.id, newEndTime);
-          }
-
-          return updatedSession;
-        }
-        return s;
-      }));
-
-      // Update room statuses
-      if (originalRoom.id !== newRoom.id) {
-        setRooms(prev => prev.map(room => {
-          if (room.id === originalRoom.id) {
-            return { ...room, status: 'Available' as const };
-          }
-          if (room.id === newRoom.id) {
-            return { ...room, status: 'Occupied' as const };
-          }
-          return room;
-        }));
-      }
-
-      console.log('Session modified successfully');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to modify session');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeSessions, services, rooms, therapists, sessionTimers, startTimerForSession, setActiveSessions, setRooms, setTherapists, setSessionTimers]);
 
   const handleLogWalkout = async () => {
     if (!walkoutReason || walkoutCount <= 0) {
@@ -1324,12 +1540,18 @@ export default function Home() {
 
   const beginSessionTimer = useCallback(async (sessionId: string) => {
     const session = activeSessions.find(s => s.id === sessionId);
-    if (!session || session.status !== 'Ready') return;
+    if (!session || session.status !== 'Ready') {
+      return;
+    }
 
     const startTime = new Date();
-    const endTime = new Date(startTime.getTime() + session.duration * 60 * 1000);
+    // DEBUG: Make timer expire in 10 seconds for testing
+    const debugMode = false; // Set to false for production
+    const endTime = debugMode 
+      ? new Date(startTime.getTime() + 10 * 1000) // 10 seconds for debugging
+      : new Date(startTime.getTime() + session.duration * 60 * 1000); // Normal duration
 
-    setIsLoading(true);
+    setIsLoadingWithLog(true);
     setError(null);
 
     try {
@@ -1366,7 +1588,7 @@ export default function Home() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start session timer');
     } finally {
-      setIsLoading(false);
+      setIsLoadingWithLog(false);
     }
   }, [activeSessions, startTimerForSession]);
 
@@ -1406,8 +1628,123 @@ export default function Home() {
     updateFinancials();
   }, [completedSessions, shopExpenses]);
 
-  // Real-time subscriptions removed for now - will implement with client-side Supabase client later
-  // For now, the app will work with manual refreshes and API calls
+  // Real-time subscriptions for multi-device synchronization
+  React.useEffect(() => {
+    console.log('Setting up real-time subscriptions...');
+    
+    const subscription = subscribeToAllData({
+      onTherapistChange: (event) => {
+        console.log('Therapist change received:', event);
+        if (event.eventType === 'UPDATE' && event.new) {
+          setTherapists(prev => prev.map(t => 
+            t.id === event.new!.id ? event.new! : t
+          ));
+        } else if (event.eventType === 'INSERT' && event.new) {
+          setTherapists(prev => [...prev, event.new!]);
+        } else if (event.eventType === 'DELETE' && event.old) {
+          setTherapists(prev => prev.filter(t => t.id !== event.old!.id));
+        }
+      },
+      
+      onRoomChange: (event) => {
+        console.log('Room change received:', event);
+        if (event.eventType === 'UPDATE' && event.new) {
+          setRooms(prev => prev.map(r => 
+            r.id === event.new!.id ? event.new! : r
+          ));
+        }
+      },
+      
+      onSessionChange: (event) => {
+        console.log('Session change received:', event);
+        if (event.eventType === 'INSERT' && event.new) {
+          // New session started - add to active sessions
+          setActiveSessions(prev => [...prev, event.new! as SessionWithDetails]);
+        } else if (event.eventType === 'UPDATE' && event.new) {
+          if (event.new.status === 'Completed') {
+            // Session completed - move from active to completed
+            setActiveSessions(prev => prev.filter(s => s.id !== event.new!.id));
+            setCompletedSessions(prev => [...prev, event.new! as SessionWithDetails]);
+            // Trigger financial recalculation
+            setTimeout(() => {
+              const completedSession = event.new! as SessionWithDetails;
+              setFinancials(prev => ({
+                ...prev,
+                total_revenue: prev.total_revenue + completedSession.price,
+                therapist_payouts: prev.therapist_payouts + completedSession.payout
+              }));
+            }, 100);
+          } else {
+            // Update active session
+            setActiveSessions(prev => prev.map(s => 
+              s.id === event.new!.id ? { ...s, ...event.new! } : s
+            ));
+          }
+        } else if (event.eventType === 'DELETE' && event.old) {
+          setActiveSessions(prev => prev.filter(s => s.id !== event.old!.id));
+          setCompletedSessions(prev => prev.filter(s => s.id !== event.old!.id));
+        }
+      },
+      
+      onBookingChange: (event) => {
+        console.log('Booking change received:', event);
+        if (event.eventType === 'INSERT' && event.new) {
+          setBookings(prev => [...prev, event.new! as BookingWithDetails]);
+        } else if (event.eventType === 'UPDATE' && event.new) {
+          setBookings(prev => prev.map(b => 
+            b.id === event.new!.id ? { ...b, ...event.new! } : b
+          ));
+        } else if (event.eventType === 'DELETE' && event.old) {
+          setBookings(prev => prev.filter(b => b.id !== event.old!.id));
+        }
+      },
+      
+      onWalkoutChange: (event) => {
+        console.log('Walkout change received:', event);
+        if (event.eventType === 'INSERT' && event.new) {
+          setWalkouts(prev => [...prev, event.new!]);
+        }
+      },
+      
+      onShopExpenseChange: (event) => {
+        console.log('Shop expense change received:', event);
+        if (event.eventType === 'INSERT' && event.new) {
+          setShopExpenses(prev => [...prev, event.new!]);
+          // Update financials
+          setTimeout(() => {
+            setFinancials(prev => ({
+              ...prev,
+              shop_revenue: prev.shop_revenue - event.new!.amount // Shop expenses reduce revenue
+            }));
+          }, 100);
+        }
+      },
+      
+      onTherapistExpenseChange: (event) => {
+        console.log('Therapist expense change received:', event);
+        if (event.eventType === 'INSERT' && event.new) {
+          // Update therapist expenses in the therapists array
+          setTherapists(prev => prev.map(t => 
+            t.id === event.new!.therapist_id 
+              ? { 
+                  ...t, 
+                  expenses: [...t.expenses, {
+                    id: event.new!.id,
+                    name: event.new!.item_name,
+                    amount: event.new!.amount
+                  }]
+                }
+              : t
+          ));
+        }
+      }
+    });
+
+    return () => {
+      console.log('Cleaning up real-time subscriptions...');
+      subscription.unsubscribe();
+    };
+  }, []); // Empty dependency array - set up once on mount
 
   // Set up global booking click handler
   React.useEffect(() => {
@@ -1561,6 +1898,7 @@ export default function Home() {
             onTherapistClick={handleTherapistClick}
             onBookSession={handleBookSession}
             onAddExpense={handleAddExpense}
+            onPayoutTherapist={handlePayoutTherapist}
             onDepartTherapist={handleDepartTherapist}
             onModifySession={handleModifySession}
             onBeginSessionTimer={beginSessionTimer}
@@ -1744,12 +2082,14 @@ export default function Home() {
       </footer>
 
       {/* Add Therapist Modal */}
+      {isAddTherapistModalOpen && (
       <AddTherapistModal
         isOpen={isAddTherapistModalOpen}
         onClose={() => setIsAddTherapistModalOpen(false)}
         onAddTherapist={handleAddTherapist}
         currentTherapists={therapists}
       />
+      )}
 
       {/* Session Modal */}
       <SessionModal
@@ -1758,6 +2098,9 @@ export default function Home() {
           setIsSessionModalOpen(false);
           setSelectedBookingForSession(null);
           setSelectedTherapistForBooking(null);
+          setModificationMode(false);
+          setModifyingSessionId(null);
+          setSelectedSessionForModify(null);
         }}
         onConfirmSession={handleConfirmSession}
         therapists={therapists}
@@ -1766,6 +2109,9 @@ export default function Home() {
         bookingId={selectedBookingForSession?.id}
         bookingNote={selectedBookingForSession?.note || undefined}
         bookingData={bookingForSessionRef.current || selectedBookingForSession || undefined}
+        modificationMode={modificationMode}
+        modifyingSessionId={modifyingSessionId || undefined}
+        selectedSessionForModify={selectedSessionForModify || undefined}
       />
 
       {/* Booking Modal */}
@@ -1806,6 +2152,18 @@ export default function Home() {
         therapist={selectedTherapistForExpense}
       />
 
+      {/* Payout Modal */}
+      <PayoutModal
+        isOpen={isPayoutModalOpen}
+        onClose={() => {
+          setIsPayoutModalOpen(false);
+          setSelectedTherapistForPayout(null);
+        }}
+        onPrintPayout={handlePrintPayout}
+        therapist={selectedTherapistForPayout}
+        completedSessions={completedSessions}
+      />
+
       {/* Departure Modal */}
       <DepartureModal
         isOpen={isDepartureModalOpen}
@@ -1815,7 +2173,6 @@ export default function Home() {
         }}
         onConfirmDeparture={handleConfirmDeparture}
         therapist={selectedTherapistForDeparture}
-        completedSessions={completedSessions}
       />
 
       {/* Shop Expense Modal */}
@@ -1836,18 +2193,6 @@ export default function Home() {
         financials={financials}
       />
 
-      {/* Modify Session Modal */}
-      <ModifySessionModal
-        isOpen={isModifySessionModalOpen}
-        onClose={() => {
-          setIsModifySessionModalOpen(false);
-          setSelectedSessionForModify(null);
-        }}
-        onConfirmModify={handleConfirmModifySession}
-        session={selectedSessionForModify}
-        therapists={therapists}
-        rooms={rooms as Room[]}
-      />
 
       {/* Monthly Report Modal */}
       <MonthlyReportModal

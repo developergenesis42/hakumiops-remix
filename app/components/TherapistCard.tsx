@@ -10,6 +10,7 @@ interface TherapistCardProps {
   onTherapistClick?: (therapist: Therapist) => void;
   onBookSession?: (therapistId: string) => void;
   onAddExpense?: (therapistId: string) => void;
+  onPayoutTherapist?: (therapistId: string) => void;
   onDepartTherapist?: (therapistId: string) => void;
   onModifySession?: (sessionId: string) => void;
   onBeginSessionTimer?: (sessionId: string) => void;
@@ -28,6 +29,7 @@ export default function TherapistCard({
   onTherapistClick,
   onBookSession,
   onAddExpense,
+  onPayoutTherapist,
   onDepartTherapist,
   onModifySession: _onModifySession,
   onBeginSessionTimer: _onBeginSessionTimer,
@@ -36,16 +38,21 @@ export default function TherapistCard({
   onCancelBooking: _onCancelBooking,
   getSessionTimeRemaining
 }: TherapistCardProps) {
-  // Force re-render every second to update timers
+  // Force re-render every second to update timers (only when there's an active session)
   const [, forceUpdate] = React.useState({});
   
   React.useEffect(() => {
+    // Only run timer if there's an active session
+    if (!activeSession || activeSession.status !== 'In Progress') {
+      return;
+    }
+    
     const interval = setInterval(() => {
       forceUpdate({});
     }, 1000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [activeSession]);
 
   // Suppress unused variable warnings for event handlers that are used via event delegation
   void _onModifySession;
@@ -284,7 +291,7 @@ export default function TherapistCard({
           background-color: rgba(255, 255, 255, 0.05); 
         }
       `}</style>
-      <div className="bg-gray-900 rounded-lg shadow-md flex flex-col p-4 gap-3">
+      <div className="bg-gray-900 rounded-lg shadow-md flex flex-col p-4 gap-3 border border-white/20">
         <div className="flex justify-between items-start">
           <div>
             <button
@@ -295,37 +302,53 @@ export default function TherapistCard({
             </button>
             <span className={`status-badge ${statusClass}`}>{therapist.status}</span>
           </div>
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <button 
-              data-therapist-id={therapist.id}
-              className={`book-session-btn bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 text-sm rounded ${therapist.status === 'Departed' ? 'hidden' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onBookSession?.(therapist.id);
-              }}
-            >
-              Book
-            </button>
-            <button 
-              data-therapist-id={therapist.id}
-              className={`add-expense-btn bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1 text-sm rounded ${therapist.status === 'Rostered' || therapist.status === 'Departed' ? 'hidden' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onAddExpense?.(therapist.id);
-              }}
-            >
-              Expense
-            </button>
-            <button 
-              data-therapist-id={therapist.id}
-              className={`depart-therapist-btn bg-red-600 hover:bg-red-500 text-white px-3 py-1 text-sm rounded ${therapist.status === 'Departed' ? 'hidden' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onDepartTherapist?.(therapist.id);
-              }}
-            >
-              Depart
-            </button>
+          <div className="flex flex-col gap-1 flex-shrink-0">
+            {/* Primary Actions Row */}
+            <div className="flex items-center gap-2">
+              <button 
+                data-therapist-id={therapist.id}
+                className={`book-session-btn bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 text-sm rounded ${therapist.status === 'Departed' ? 'hidden' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onBookSession?.(therapist.id);
+                }}
+              >
+                Book
+              </button>
+              <button 
+                data-therapist-id={therapist.id}
+                className={`add-expense-btn bg-yellow-600 hover:bg-yellow-500 text-white px-3 py-1 text-sm rounded ${therapist.status === 'Rostered' || therapist.status === 'Departed' ? 'hidden' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddExpense?.(therapist.id);
+                }}
+              >
+                Expense
+              </button>
+            </div>
+            {/* Secondary Actions Row */}
+            <div className="flex items-center gap-2">
+              <button 
+                data-therapist-id={therapist.id}
+                className={`payout-therapist-btn bg-green-600 hover:bg-green-500 text-white px-3 py-1 text-sm rounded ${therapist.status === 'Departed' ? 'hidden' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPayoutTherapist?.(therapist.id);
+                }}
+              >
+                Payout
+              </button>
+              <button 
+                data-therapist-id={therapist.id}
+                className={`depart-therapist-btn bg-red-600 hover:bg-red-500 text-white px-3 py-1 text-sm rounded ${therapist.status === 'Departed' ? 'hidden' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDepartTherapist?.(therapist.id);
+                }}
+              >
+                Depart
+              </button>
+            </div>
           </div>
         </div>
 

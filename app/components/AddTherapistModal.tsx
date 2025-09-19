@@ -34,7 +34,6 @@ export default function AddTherapistModal({
   onAddTherapist, 
   currentTherapists 
 }: AddTherapistModalProps) {
-  console.log('AddTherapistModal rendered with isOpen:', isOpen);
   const [selectedTherapistId, setSelectedTherapistId] = useState<number | ''>('');
 
   // Filter out therapists already on duty
