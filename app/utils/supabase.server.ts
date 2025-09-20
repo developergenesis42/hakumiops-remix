@@ -15,8 +15,9 @@ export function createClient() {
     throw new Error('Missing Supabase environment variables');
   }
 
-  console.log('Supabase URL configured:', supabaseUrl ? 'SET' : 'NOT SET');
-  console.log('Supabase Key configured:', supabaseAnonKey ? 'SET' : 'NOT SET');
+  // Configuration logs removed to reduce console spam
+  // console.log('Supabase URL configured:', supabaseUrl ? 'SET' : 'NOT SET');
+  // console.log('Supabase Key configured:', supabaseAnonKey ? 'SET' : 'NOT SET');
 
   // Use the regular Supabase client for server-side operations
   const supabase = createSupabaseClient(

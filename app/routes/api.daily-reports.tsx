@@ -1,7 +1,10 @@
 import { json } from "@remix-run/node";
 import { createDailyReport, getDailyReports } from "~/utils/database.server";
+import { requireAuth } from "~/utils/auth.server";
 
-export async function loader() {
+export async function loader({ request }: { request: Request }) {
+  // Require authentication
+  await requireAuth(request);
   try {
     const { data, error } = await getDailyReports();
     
@@ -18,6 +21,8 @@ export async function loader() {
 }
 
 export async function action({ request }: { request: Request }) {
+  // Require authentication
+  await requireAuth(request);
   if (request.method !== "POST") {
     return json({ error: "Method not allowed" }, { status: 405 });
   }

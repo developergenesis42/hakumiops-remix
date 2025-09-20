@@ -1,8 +1,11 @@
 import { json } from "@remix-run/node";
 import { createTherapist, getTherapists, updateTherapist } from "~/utils/database.server";
 import { validateTherapist } from "~/utils/validation.server";
+import { requireAuth } from "~/utils/auth.server";
 
 export async function loader({ request }: { request: Request }) {
+  // Require authentication
+  await requireAuth(request);
   try {
     const url = new URL(request.url);
     const all = url.searchParams.get("all");
@@ -35,6 +38,9 @@ export async function loader({ request }: { request: Request }) {
 }
 
 export async function action({ request }: { request: Request }) {
+  // Require authentication
+  await requireAuth(request);
+  
   if (request.method !== "POST") {
     return json({ error: "Method not allowed" }, { status: 405 });
   }

@@ -1,7 +1,10 @@
 import { json } from "@remix-run/node";
 import { getMonthlyData } from "~/utils/database.server";
+import { requireAuth } from "~/utils/auth.server";
 
 export async function loader({ request }: { request: Request }) {
+  // Require authentication
+  await requireAuth(request);
   try {
     const url = new URL(request.url);
     const month = url.searchParams.get("month");

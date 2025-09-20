@@ -33,6 +33,7 @@ export async function getRoster(): Promise<{ data: Array<{id: number; name: stri
     
     return { data: data || [], error: null };
   } catch (error) {
+    console.error('getRoster error:', error);
     return { 
       data: [], 
       error: error instanceof Error ? error.message : 'Failed to fetch roster' 
@@ -44,17 +45,23 @@ export async function getAvailableRosterTherapists(currentTherapistNames: string
   try {
     const { supabase } = createClient();
     
-    const { data, error } = await supabase
+    // First get all active roster therapists
+    const { data: allData, error } = await supabase
       .from('roster')
       .select('id, name, vip_number')
       .eq('is_active', true)
-      .not('name', 'in', `(${currentTherapistNames.map(name => `'${name}'`).join(',')})`)
       .order('vip_number', { ascending: true });
     
     if (error) throw error;
     
-    return { data: data || [], error: null };
+    // Filter out therapists that are already on duty
+    const availableTherapists = (allData || []).filter(therapist => 
+      !currentTherapistNames.includes(therapist.name)
+    );
+    
+    return { data: availableTherapists, error: null };
   } catch (error) {
+    console.error('getAvailableRosterTherapists error:', error);
     return { 
       data: [], 
       error: error instanceof Error ? error.message : 'Failed to fetch available roster therapists' 
@@ -336,11 +343,27 @@ export async function getSessionsWithDetails(): Promise<{ data: SessionWithDetai
     if (error) throw error;
 
     // Transform the data to match SessionWithDetails interface
-    const sessionsWithDetails: SessionWithDetails[] = (data || []).map(session => ({
-      ...session,
-      service: session.services,
-      room: session.rooms,
-      therapists: [] // Will be populated separately
+    const sessionsWithDetails: SessionWithDetails[] = await Promise.all((data || []).map(async (session) => {
+      // console.log(`🔍 Fetching therapists for session ${session.id}:`, session.therapist_ids);
+      
+      // Fetch therapists for this session
+      const { data: therapistsData, error: therapistsError } = await supabase
+        .from("therapists")
+        .select("*")
+        .in("id", session.therapist_ids);
+
+      if (therapistsError) {
+        console.error("Error fetching therapists for session:", therapistsError);
+      }
+
+      // console.log(`✅ Found therapists for session ${session.id}:`, therapistsData?.map(t => t.name));
+
+      return {
+        ...session,
+        service: session.services,
+        room: session.rooms,
+        therapists: therapistsData || []
+      };
     }));
 
     return { data: sessionsWithDetails, error: null };
@@ -499,15 +522,37 @@ export async function createBooking(booking: Omit<Booking, 'id' | 'created_at' |
 
 export async function deleteBooking(id: string): Promise<{ error: string | null }> {
   try {
+    console.log('🗑️ deleteBooking function called with ID:', id);
     const { supabase } = createClient();
+    
+    // First, check if the booking exists
+    const { data: existingBooking, error: fetchError } = await supabase
+      .from("bookings")
+      .select("id")
+      .eq("id", id)
+      .single();
+    
+    if (fetchError) {
+      console.log('❌ Booking not found or fetch error:', fetchError);
+      throw fetchError;
+    }
+    
+    console.log('✅ Booking found, proceeding with deletion:', existingBooking);
+    
     const { error } = await supabase
       .from("bookings")
       .delete()
       .eq("id", id);
 
-    if (error) throw error;
+    if (error) {
+      console.log('❌ Supabase delete error:', error);
+      throw error;
+    }
+    
+    console.log('✅ Booking deleted successfully from Supabase');
     return { error: null };
   } catch (error) {
+    console.log('❌ deleteBooking error:', error);
     return { 
       error: error instanceof Error ? error.message : 'Failed to delete booking' 
     };
@@ -934,9 +979,9 @@ export async function getMonthlyData(month: string): Promise<{ data: Record<stri
     let totalShopExpenses = 0;
     
     // Aggregate detailed data from daily reports
-    const allSessions: any[] = [];
-    const allWalkouts: any[] = [];
-    const allShopExpenses: any[] = [];
+    const allSessions: Session[] = [];
+    const allWalkouts: Walkout[] = [];
+    const allShopExpenses: ShopExpense[] = [];
     const therapistPerformance: Record<string, { name: string; sessions: number; revenue: number; expenses: number }> = {};
     
     (dailyReports || []).forEach(report => {
@@ -949,7 +994,7 @@ export async function getMonthlyData(month: string): Promise<{ data: Record<stri
       
       // Extract detailed data from report_data JSONB
       if (report.report_data) {
-        const reportData = report.report_data as any;
+        const reportData = report.report_data as Record<string, unknown>;
         
         // Aggregate sessions
         if (reportData.completed_sessions && Array.isArray(reportData.completed_sessions)) {
@@ -959,18 +1004,18 @@ export async function getMonthlyData(month: string): Promise<{ data: Record<stri
         // Aggregate walkouts
         if (reportData.walkouts && Array.isArray(reportData.walkouts)) {
           allWalkouts.push(...reportData.walkouts);
-          totalWalkoutPeople += reportData.walkouts.reduce((sum: number, w: any) => sum + Number(w.count || 0), 0);
+          totalWalkoutPeople += reportData.walkouts.reduce((sum: number, w: Walkout) => sum + Number(w.count || 0), 0);
         }
         
         // Aggregate shop expenses
         if (reportData.shop_expenses && Array.isArray(reportData.shop_expenses)) {
           allShopExpenses.push(...reportData.shop_expenses);
-          totalShopExpenses += reportData.shop_expenses.reduce((sum: number, e: any) => sum + Number(e.amount || 0), 0);
+          totalShopExpenses += reportData.shop_expenses.reduce((sum: number, e: ShopExpense) => sum + Number(e.amount || 0), 0);
         }
         
         // Aggregate therapist performance
         if (reportData.therapist_summaries && Array.isArray(reportData.therapist_summaries)) {
-          reportData.therapist_summaries.forEach((therapist: any) => {
+          reportData.therapist_summaries.forEach((therapist: Record<string, unknown>) => {
             if (!therapistPerformance[therapist.name]) {
               therapistPerformance[therapist.name] = {
                 name: therapist.name,

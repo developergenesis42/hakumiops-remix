@@ -1,8 +1,12 @@
 import { json } from "@remix-run/node";
 import { createSession, updateSession, getSessions } from "~/utils/database.server";
 import { validateSession } from "~/utils/validation.server";
+import { validateDeleteAction } from "~/utils/api-validation.server";
+import { requireAuth } from "~/utils/auth.server";
 
-export async function loader() {
+export async function loader({ request }: { request: Request }) {
+  // Require authentication
+  await requireAuth(request);
   try {
     const { data, error } = await getSessions();
     
@@ -19,15 +23,26 @@ export async function loader() {
 }
 
 export async function action({ request }: { request: Request }) {
-  const url = new URL(request.url);
-  const action = url.searchParams.get("action");
+  // Temporarily disable auth for development - change back to secureApiAction for production
+  // return secureApiAction(request, async (req) => {
+  const req = request; // Use request directly for development
+  
+  try {
+    const url = new URL(req.url);
+    const action = url.searchParams.get("action");
 
-  // Handle DELETE method for clearing completed sessions
-  if (request.method === "DELETE") {
-    try {
-      const { action: deleteAction } = await request.json();
-      
-      if (deleteAction === 'clear_completed') {
+    // Handle DELETE method for clearing completed sessions
+    if (req.method === "DELETE") {
+      try {
+        const body = await req.json();
+        
+        // Validate DELETE action
+        const validation = validateDeleteAction(body, ['clear_completed']);
+        if (!validation.valid) {
+          return json({ error: validation.error }, { status: 400 });
+        }
+        
+        if (body.action === 'clear_completed') {
         const { createClient } = await import("~/utils/supabase.server");
         const { supabase } = createClient();
         
@@ -42,23 +57,23 @@ export async function action({ request }: { request: Request }) {
         }
         
         return json({ message: 'Completed sessions cleared successfully' });
-      } else {
-        return json({ error: "Invalid delete action" }, { status: 400 });
+        } else {
+          return json({ error: "Invalid delete action" }, { status: 400 });
+        }
+      } catch (error) {
+        return json({ 
+          error: error instanceof Error ? error.message : 'Failed to clear sessions' 
+        }, { status: 500 });
       }
-    } catch (error) {
-      return json({ 
-        error: error instanceof Error ? error.message : 'Failed to clear sessions' 
-      }, { status: 500 });
     }
-  }
 
-  if (request.method !== "POST") {
-    return json({ error: "Method not allowed" }, { status: 405 });
-  }
+    if (req.method !== "POST") {
+      return json({ error: "Method not allowed" }, { status: 405 });
+    }
 
-  try {
-    if (action === "create") {
-      const sessionData = await request.json();
+    try {
+      if (action === "create") {
+        const sessionData = await req.json();
       
       // Validate session data
       const validation = validateSession(sessionData);
@@ -75,31 +90,53 @@ export async function action({ request }: { request: Request }) {
       }
 
       return json({ data });
-    } else if (action === "update") {
-      const { sessionId, updates } = await request.json();
-      
-      const { data, error } = await updateSession(sessionId, updates);
-      
-      if (error) {
-        return json({ error }, { status: 500 });
-      }
+      } else if (action === "update") {
+        const { sessionId, updates } = await req.json();
+        
+        const { data, error } = await updateSession(sessionId, updates);
+        
+        if (error) {
+          return json({ error }, { status: 500 });
+        }
 
-      return json({ data });
-    } else if (action === "complete") {
-      const { sessionId, endTime, forceComplete } = await request.json();
-      
-      const { data, error } = await updateSession(sessionId, {
-        status: 'Completed',
-        end_time: endTime || new Date().toISOString()
-      });
-      
-      if (error) {
-        return json({ error }, { status: 500 });
-      }
+        return json({ data });
+      } else if (action === "complete") {
+        const { sessionId, endTime, forceComplete } = await req.json();
+        
+        const { data, error } = await updateSession(sessionId, {
+          status: 'Completed',
+          end_time: endTime || new Date().toISOString()
+        });
+        
+        if (error) {
+          return json({ error }, { status: 500 });
+        }
 
-      return json({ data, forceComplete });
-    } else {
-      return json({ error: "Invalid action" }, { status: 400 });
+        return json({ data, forceComplete });
+      } else if (action === "delete") {
+        const { sessionId } = await req.json();
+        
+        const { createClient } = await import("~/utils/supabase.server");
+        const { supabase } = createClient();
+        
+        // Delete the session
+        const { error } = await supabase
+          .from('sessions')
+          .delete()
+          .eq('id', sessionId);
+        
+        if (error) {
+          return json({ error: error.message }, { status: 500 });
+        }
+        
+        return json({ message: 'Session deleted successfully' });
+      } else {
+        return json({ error: "Invalid action" }, { status: 400 });
+      }
+    } catch (error) {
+      return json({ 
+        error: error instanceof Error ? error.message : 'Failed to process session' 
+      }, { status: 500 });
     }
   } catch (error) {
     return json({ 

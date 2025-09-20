@@ -1,7 +1,10 @@
 import { json } from "@remix-run/node";
 import { getPrintNodeService } from "~/utils/printnode.server";
+import { requireAuth } from "~/utils/auth.server";
 
 export async function action({ request }: { request: Request }) {
+  // Require authentication
+  await requireAuth(request);
   if (request.method !== "POST") {
     return json({ error: "Method not allowed" }, { status: 405 });
   }

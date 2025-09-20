@@ -10,6 +10,7 @@ interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   placeholder?: string;
   className?: string;
   required?: boolean;
+  variant?: 'light' | 'dark';
 }
 
 const TextField = React.forwardRef<HTMLInputElement, TextFieldProps>(
@@ -22,23 +23,26 @@ const TextField = React.forwardRef<HTMLInputElement, TextFieldProps>(
       placeholder,
       className,
       label,
+      variant = 'light',
       ...rest
     },
     ref
   ) {
+    const isDark = variant === 'dark';
+    
     return (
       <div>
         {label && (
           <label
             htmlFor={id}
-            className="block mb-2 text-sm tracking-wide text-slate-700"
+            className={`block mb-2 text-sm tracking-wide ${isDark ? 'text-gray-300' : 'text-slate-700'}`}
           >
             {label}{" "}
             {required && (
               <span
                 title="This field is required"
                 aria-label="required"
-                className="text-cyan-600"
+                className={isDark ? 'text-cyan-400' : 'text-cyan-600'}
               >
                 *
               </span>
@@ -53,7 +57,11 @@ const TextField = React.forwardRef<HTMLInputElement, TextFieldProps>(
           required={required}
           placeholder={placeholder}
           className={[
-            "block w-full rounded-md border p-3 text-sm text-slate-700 transition placeholder:font-light border-slate-200 focus:border-cyan-300 focus:ring-2 focus:ring-cyan-100 focus:outline-none",
+            `block w-full rounded-md border p-3 text-sm transition placeholder:font-light focus:outline-none ${
+              isDark 
+                ? 'bg-gray-700 border-gray-600 text-white placeholder-gray-400 focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/20' 
+                : 'text-slate-700 border-slate-200 focus:border-cyan-300 focus:ring-2 focus:ring-cyan-100'
+            }`,
             className,
           ]
             .filter(Boolean)

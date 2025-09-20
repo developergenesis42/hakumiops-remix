@@ -107,6 +107,13 @@ export default function SessionModal({
 
   // Reset form when modal opens
   useEffect(() => {
+    console.log('🔄 SessionModal useEffect triggered:', {
+      isOpen,
+      bookingId,
+      bookingData: bookingData ? 'present' : 'null',
+      preselectedTherapistId,
+      modificationMode
+    });
     
     if (isOpen) {
       setIsPrinting(false);
@@ -160,6 +167,7 @@ export default function SessionModal({
         setNotes(session.notes || '');
       } else if (bookingId && bookingData) {
         // Opening from booking - pre-populate from booking data
+        console.log('📋 Opening in BOOKING mode');
         setIsFromBooking(true);
         const service = bookingData.service;
         
@@ -188,6 +196,7 @@ export default function SessionModal({
         setWob('B');
       } else {
         // Opening for new session
+        console.log('🆕 Opening in NEW SESSION mode');
         setIsFromBooking(false);
         setSelectedCategory('');
         setSelectedServiceId('');
@@ -272,19 +281,37 @@ export default function SessionModal({
 
   // Validation
   const isFormValid = () => {
-    if (!selectedServiceId || !selectedTherapist1Id || !selectedRoomId) return false;
+    const valid = !selectedServiceId || !selectedTherapist1Id || !selectedRoomId ? false :
+      selectedCategory === '2 Ladies' && !selectedTherapist2Id ? false :
+      selectedCategory === '2 Ladies' && selectedTherapist1Id === selectedTherapist2Id ? false :
+      true;
     
-    // For 2 Ladies, need second therapist
-    if (selectedCategory === '2 Ladies' && !selectedTherapist2Id) return false;
+    // console.log('🔍 Form validation check:', {
+    //   selectedServiceId,
+    //   selectedTherapist1Id,
+    //   selectedTherapist2Id,
+    //   selectedRoomId,
+    //   selectedCategory,
+    //   valid
+    // });
     
-    // Can't select same therapist twice
-    if (selectedCategory === '2 Ladies' && selectedTherapist1Id === selectedTherapist2Id) return false;
-    
-    return true;
+    return valid;
   };
 
   const handleConfirm = async () => {
-    if (!isFormValid()) return;
+    // console.log('🎯 SessionModal handleConfirm called');
+    // Debug logs commented out to reduce console spam
+    // console.log('Form valid:', isFormValid());
+    // console.log('Selected service ID:', selectedServiceId);
+    // console.log('Selected therapist 1 ID:', selectedTherapist1Id);
+    // console.log('Selected therapist 2 ID:', selectedTherapist2Id);
+    // console.log('Selected room ID:', selectedRoomId);
+    // console.log('Booking ID:', bookingId);
+    
+    if (!isFormValid()) {
+      console.log('❌ Form is not valid, returning early');
+      return;
+    }
     
     const therapistIds = [selectedTherapist1Id];
     if (selectedCategory === '2 Ladies') {
@@ -304,7 +331,7 @@ export default function SessionModal({
       setPrintError(null);
       
       // Call the original confirm handler first (create or modify session)
-      onConfirmSession({
+      const sessionData = {
         serviceId: selectedServiceId as number,
         therapistIds,
         roomId: selectedRoomId,
@@ -317,7 +344,10 @@ export default function SessionModal({
         addon_items: selectedAddonItems.length > 0 ? ADDON_ITEMS.filter(item => selectedAddonItems.includes(item.name)) : undefined,
         addon_custom_amount: customAddonAmount || undefined,
         notes: notes || undefined
-      });
+      };
+      
+      console.log('📤 Calling onConfirmSession with data:', sessionData);
+      onConfirmSession(sessionData);
       
       // Only print if not in modification mode (for new sessions)
       // For modifications, we'll handle printing in the parent component
@@ -735,7 +765,12 @@ export default function SessionModal({
               Cancel
             </button>
             <button
-              onClick={handleConfirm}
+              onClick={() => {
+                // console.log('🔘 Confirm button clicked!');
+                // console.log('Form valid:', isFormValid());
+                // console.log('Is printing:', isPrinting);
+                handleConfirm();
+              }}
               disabled={!isFormValid() || isPrinting}
               className="bg-green-600 hover:bg-green-500 disabled:bg-gray-500 disabled:cursor-not-allowed text-white font-bold py-2 px-6 rounded-lg transition duration-200 flex items-center space-x-2"
             >

@@ -4,7 +4,7 @@ import type {
   MetaFunction,
 } from "@remix-run/node";
 import { redirect } from "@remix-run/node";
-import { Form, Link, useActionData, useNavigation } from "@remix-run/react";
+import { Form, useActionData, useNavigation } from "@remix-run/react";
 
 import { commitSession, getSession } from "~/session.server";
 
@@ -45,7 +45,7 @@ export async function action({ request }: ActionFunctionArgs) {
   const session = await getSession(request.headers.get("Cookie"));
   session.set("__session", data.session.access_token);
 
-  return redirect("/dashboard", {
+  return redirect("/", {
     headers: {
       "Set-Cookie": await commitSession(session),
     },
@@ -57,7 +57,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const token = session.get("__session");
 
   if (token) {
-    return redirect("/dashboard");
+    return redirect("/");
   }
 
   return Response.json({});
@@ -70,28 +70,31 @@ export default function LogIn() {
   const isSubmitting = navigation.state === "submitting";
 
   return (
-    <div className="w-full max-w-2xl px-8 py-10 space-y-8 bg-white shadow-md rounded-xl lg:space-y-10 lg:px-10 lg:py-12 ">
+    <div className="w-full max-w-2xl px-8 py-10 space-y-8 bg-gray-800 shadow-xl rounded-xl border border-gray-600 lg:space-y-10 lg:px-10 lg:py-12">
       <div className="space-y-3">
-        <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl lg:text-4xl">
-          Log In to Remix Dashboard
+        <h1 className="text-2xl font-semibold text-white sm:text-3xl lg:text-4xl">
+          Log In
         </h1>
-        <div className="flex gap-3 p-3 rounded-md bg-cyan-50">
-          <div className="flex items-center justify-center w-5 h-5 font-serif italic text-white rounded-full bg-cyan-500">
-            i
+        <p className="text-sm text-gray-400">Operations Command Center</p>
+        {process.env.NODE_ENV === 'development' && (
+          <div className="flex gap-3 p-3 rounded-md bg-cyan-900/30 border border-cyan-500/30">
+            <div className="flex items-center justify-center w-5 h-5 font-serif italic text-white rounded-full bg-cyan-500">
+              i
+            </div>
+            <div className="text-xs text-gray-300">
+              <p>
+                Email: <span className="font-medium text-cyan-300">demo@example.com</span>
+              </p>
+              <p>
+                Password: <span className="font-medium text-cyan-300">demo123</span>
+              </p>
+            </div>
           </div>
-          <div className="text-xs">
-            <p>
-              Email: <span className="font-medium">demo@example.com</span>
-            </p>
-            <p>
-              Password: <span className="font-medium">demo123</span>
-            </p>
-          </div>
-        </div>
+        )}
       </div>
       <Form method="POST">
         {actionData?.error && (
-          <p className="p-3 mb-4 text-sm rounded-md bg-rose-50 text-rose-700">
+          <p className="p-3 mb-4 text-sm rounded-md bg-red-900/50 border border-red-500 text-red-200">
             {actionData.error}
           </p>
         )}
@@ -106,6 +109,7 @@ export default function LogIn() {
             required
             type="email"
             placeholder="Email address"
+            variant="dark"
           />
           <TextField
             id="password"
@@ -114,22 +118,11 @@ export default function LogIn() {
             required
             type="password"
             placeholder="password"
+            variant="dark"
           />
-          <Link
-            to="/reset-password"
-            className="block text-sm tracking-wide underline text-cyan-600"
-          >
-            Forgot password?
-          </Link>
-          <Button type="submit" className="w-full" loading={isSubmitting}>
+          <Button type="submit" className="w-full bg-cyan-600 hover:bg-cyan-700 text-white" loading={isSubmitting}>
             Login
           </Button>
-          <p className="text-sm text-center">
-            New on Remix Dashboard?{" "}
-            <Link className="underline text-cyan-600" to="/signup">
-              Create an account
-            </Link>
-          </p>
         </fieldset>
       </Form>
     </div>

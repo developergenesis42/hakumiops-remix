@@ -1,7 +1,10 @@
 import { json } from "@remix-run/node";
 import { calculateFinancials } from "~/utils/database.server";
+import { requireAuth } from "~/utils/auth.server";
 
-export async function loader() {
+export async function loader({ request }: { request: Request }) {
+  // Require authentication
+  await requireAuth(request);
   try {
     const { data, error } = await calculateFinancials();
     

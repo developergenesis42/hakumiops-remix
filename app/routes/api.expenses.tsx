@@ -1,8 +1,11 @@
 import { json } from "@remix-run/node";
 import { createTherapistExpense, createShopExpense } from "~/utils/database.server";
 import { validateTherapistExpense, validateShopExpense } from "~/utils/validation.server";
+import { requireAuth } from "~/utils/auth.server";
 
 export async function action({ request }: { request: Request }) {
+  // Require authentication
+  await requireAuth(request);
   const url = new URL(request.url);
   const type = url.searchParams.get("type");
 

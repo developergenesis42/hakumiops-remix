@@ -42,7 +42,10 @@ export default function AddTherapistModal({
         ? `?exclude=${currentTherapistNames.join(',')}` 
         : '';
       
-      const response = await fetch(`/api/roster${excludeParams}`);
+      const response = await fetch(`/api/roster${excludeParams}`, {
+        credentials: 'include'
+      });
+      
       const result = await response.json();
       
       if (!response.ok) {

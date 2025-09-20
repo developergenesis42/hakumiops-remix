@@ -66,6 +66,7 @@ export interface Session {
   service_id: number;
   therapist_ids: string[]; // Array of UUIDs
   room_id: string;
+  booking_id?: string; // Reference to the booking this session was created from
   status: SessionStatus;
   start_time: string | null; // ISO timestamp
   end_time: string | null; // ISO timestamp

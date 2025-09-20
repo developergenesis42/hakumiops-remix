@@ -2,8 +2,11 @@ import { json } from "@remix-run/node";
 import { createWalkout, getWalkouts } from "~/utils/database.server";
 import { validateWalkout } from "~/utils/validation.server";
 import { createClient } from "~/utils/supabase.server";
+import { requireAuth } from "~/utils/auth.server";
 
-export async function loader() {
+export async function loader({ request }: { request: Request }) {
+  // Require authentication
+  await requireAuth(request);
   try {
     const { data, error } = await getWalkouts();
     
@@ -20,6 +23,9 @@ export async function loader() {
 }
 
 export async function action({ request }: { request: Request }) {
+  // Require authentication
+  await requireAuth(request);
+  
   if (request.method === 'DELETE') {
     // Handle clearing all walkouts (for end of day)
     try {

@@ -1,6 +1,7 @@
 
 import { useLoaderData } from "@remix-run/react";
-import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { redirect } from "@remix-run/node";
+import React, { useState, useCallback, useMemo, useRef } from "react";
 // Real-time subscriptions enabled for multi-device synchronization
 import { subscribeToAllData } from "~/utils/realtime.client";
 import RoomList from "~/components/business/RoomList";
@@ -16,13 +17,28 @@ import ShopExpenseModal from "~/components/modals/ShopExpenseModal";
 import ReportModal from "~/components/modals/ReportModal";
 import MonthlyReportModal from "~/components/modals/MonthlyReportModal";
 import EndOfDayModal from "~/components/modals/EndOfDayModal";
+import DailySessionViewModal from "~/components/modals/DailySessionViewModal";
+import GlobalHeader from "~/components/layout/GlobalHeader";
 import { usePrintNode } from "~/hooks/usePrintNode";
 // ClientOnly import removed
 import { Room, Therapist, SessionWithDetails, BookingWithDetails, ShopExpense, Walkout, FinancialSummary, AddonItem } from "~/types";
 
-export async function loader() {
+export async function loader({ request }: { request: Request }) {
   try {
-    console.log("Loader: Starting to load data...");
+    // Require authentication - redirect to login if not authenticated
+    const { requireAuth, getUserData } = await import("~/utils/auth.server");
+    await requireAuth(request); // This will throw if not authenticated
+    
+    let user = null;
+    try {
+      user = await getUserData(request);
+    } catch (error) {
+      console.log("Loader: Error fetching user data:", error);
+      // If we can't get user data, redirect to login
+      return redirect("/login");
+    }
+    
+    // console.log("Loader: Starting to load data...");
     
     // Import database functions only in the loader
     const { 
@@ -36,7 +52,7 @@ export async function loader() {
       calculateFinancials
     } = await import("~/utils/database.server");
 
-    console.log("Loader: Database functions imported successfully");
+    // console.log("Loader: Database functions imported successfully");
 
     // Fetch all data using database service functions
     const [therapistsResult, roomsResult, servicesResult, sessionsResult, bookingsResult, walkoutsResult, shopExpensesResult, financialsResult] = await Promise.all([
@@ -50,9 +66,9 @@ export async function loader() {
       calculateFinancials()
     ]);
 
-    console.log("Loader: Data fetched successfully");
-    console.log("Loader: Rooms count:", roomsResult.data?.length);
-    console.log("Loader: Therapists count:", therapistsResult.data?.length);
+    // console.log("Loader: Data fetched successfully");
+    // console.log("Loader: Rooms count:", roomsResult.data?.length);
+    // console.log("Loader: Therapists count:", therapistsResult.data?.length);
 
     // Deduplicate therapists by name (prioritize those on duty)
     const uniqueTherapists = therapistsResult.data ? 
@@ -68,9 +84,10 @@ export async function loader() {
         return acc;
       }, [] as typeof therapistsResult.data) : [];
 
-    console.log("Loader: Unique therapists count:", uniqueTherapists.length);
+    // console.log("Loader: Unique therapists count:", uniqueTherapists.length);
 
     return Response.json({ 
+      user,
       therapists: uniqueTherapists,
       rooms: roomsResult.data,
       services: servicesResult.data,
@@ -92,7 +109,15 @@ export async function loader() {
     });
   } catch (error) {
     console.error("Loader: Error occurred:", error);
+    
+    // If it's an authentication error, redirect to login
+    if (error instanceof Response && error.status === 401) {
+      return redirect("/login");
+    }
+    
+    // For other errors, return empty data
     return Response.json({
+      user: null,
       therapists: [],
       rooms: [],
       services: [],
@@ -123,6 +148,12 @@ export async function loader() {
 // clientLoader removed - will use regular loader with proper server-side data loading
 
 interface LoaderData {
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    avatar_url: string;
+  } | null;
   therapists: Therapist[];
   rooms: Room[];
   services: Array<{ id: number; name: string; category: string; room_type: string; duration: number; price: number; payout: number; created_at: string }>;
@@ -143,43 +174,10 @@ interface LoaderData {
   };
 }
 
-// Real-time date/time component
-function DateTimeDisplay() {
-  const [currentTime, setCurrentTime] = useState(new Date());
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentTime(new Date());
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  const formatDateTime = (date: Date) => {
-    const options: Intl.DateTimeFormatOptions = {
-      weekday: 'short',
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false
-    };
-    
-    return date.toLocaleDateString('en-US', options)
-      .replace(/(\w+), (\w+) (\d+), (\d+), (\d+):(\d+):(\d+)/, '$1, $2 $3, $4 • $5:$6:$7');
-  };
-
-  return (
-    <div className="text-center text-sm text-gray-300 font-mono">
-      {formatDateTime(currentTime)}
-    </div>
-  );
-}
 
 export default function Home() {
   const { 
+    user,
     rooms: initialRooms = [], 
     therapists: initialTherapists = [], 
     services: initialServices = [],
@@ -224,6 +222,7 @@ export default function Home() {
   const [modifyingSessionId, setModifyingSessionId] = useState<string | null>(null);
   const [isMonthlyReportModalOpen, setIsMonthlyReportModalOpen] = useState(false);
   const [isEndOfDayModalOpen, setIsEndOfDayModalOpen] = useState(false);
+  const [isDailySessionViewModalOpen, setIsDailySessionViewModalOpen] = useState(false);
   const [bookings, setBookings] = useState<BookingWithDetails[]>(initialBookings);
   
   // Booking to session conversion state
@@ -436,10 +435,14 @@ export default function Home() {
     addon_custom_amount?: number;
     notes?: string;
   }) => {
+    console.log('📝 handleConfirmSession called with:', sessionData);
+    
     if (modificationMode && modifyingSessionId) {
+      console.log('🔧 Modifying existing session');
       // Modify existing session
       handleModifySessionUnified(modifyingSessionId, sessionData);
     } else {
+      console.log('🆕 Creating new session, calling startSession...');
       // Create new session
     startSession(
       sessionData.serviceId,
@@ -883,6 +886,28 @@ export default function Home() {
           : room
       ));
 
+      // Update booking status to 'Completed' if this session was started from a booking
+      if (session.booking_id) {
+        try {
+          await fetch('/api/bookings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: session.booking_id,
+              status: 'Completed'
+            })
+          });
+          
+          // Update local booking state
+          setBookings(prev => prev.map(b => 
+            b.id === session.booking_id ? { ...b, status: 'Completed' as const } : b
+          ));
+        } catch (error) {
+          console.error('Failed to update booking status to Completed:', error);
+          // Continue anyway - the session was completed successfully
+        }
+      }
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to complete session');
     } finally {
@@ -1239,6 +1264,48 @@ export default function Home() {
     }
   }, [activeSessions, services, rooms, therapists, sessionTimersRef, startTimerForSession, getDefaultPrinter, printReceipt]);
 
+  const handleDeleteSession = useCallback(async (sessionId: string) => {
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetch('/api/sessions?action=delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ sessionId }),
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        setError(result.error);
+        return;
+      }
+
+      // Remove from local state
+      setActiveSessions(prev => prev.filter(s => s.id !== sessionId));
+      setCompletedSessions(prev => prev.filter(s => s.id !== sessionId));
+      
+      // Clear any timers for this session
+      if (sessionTimersRef.current[sessionId]) {
+        clearInterval(sessionTimersRef.current[sessionId]);
+        delete sessionTimersRef.current[sessionId];
+      }
+      if (sessionTimersRef.current[`${sessionId}_timeout`]) {
+        clearTimeout(sessionTimersRef.current[`${sessionId}_timeout`]);
+        delete sessionTimersRef.current[`${sessionId}_timeout`];
+      }
+
+      console.log('Session deleted successfully');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete session');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   const handleRoomStatusChange = (roomId: string, status: 'Available' | 'Occupied') => {
     setRooms(prev => prev.map(room => 
       room.id === roomId 
@@ -1515,7 +1582,7 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [therapists, financials, completedSessions, walkouts, shopExpenses, setError, setIsLoading]);
+  }, [therapists, financials, completedSessions, walkouts, shopExpenses, activeSessions, setError, setIsLoading]);
 
 
   const handleLogWalkout = async () => {
@@ -1577,13 +1644,28 @@ export default function Home() {
     bookingId?: string,
     discount?: 0 | 200 | 300,
     wob?: 'W' | 'O' | 'B',
-    vip_number?: number,
-    nationality?: 'Chinese' | 'Foreigner',
-    payment_method?: 'Cash' | 'Thai QR Code' | 'WeChat' | 'Alipay' | 'FX Cash (other than THB)',
-    addon_items?: AddonItem[],
-    addon_custom_amount?: number,
-    notes?: string
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _vip_number?: number,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _nationality?: 'Chinese' | 'Foreigner',
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _payment_method?: 'Cash' | 'Thai QR Code' | 'WeChat' | 'Alipay' | 'FX Cash (other than THB)',
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _addon_items?: AddonItem[],
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _addon_custom_amount?: number,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _notes?: string
   ) => {
+    console.log('🚀 startSession called with:', {
+      serviceId,
+      therapistIds,
+      roomId,
+      bookingId,
+      discount,
+      wob
+    });
+    
     setIsLoading(true);
     setError(null);
 
@@ -1616,26 +1698,21 @@ export default function Home() {
       service_id: serviceId,
       therapist_ids: therapistIds,
       room_id: roomId,
+      booking_id: bookingId || null, // Include booking_id for tracking
       status: 'Ready' as const,
       duration: service.duration,
       start_time: null,
       end_time: null,
       price: Math.max(0, service.price - (discount || 0)),
-      payout: service.payout,
-      // custom fields persisted if backend supports
-      discount: discount || 0,
-      wob: wob || 'W',
-      vip_number: vip_number || undefined,
-      nationality: nationality || 'Chinese',
-      payment_method: payment_method || 'Cash',
-      addon_items: addon_items || undefined,
-      addon_custom_amount: addon_custom_amount || undefined,
-      notes: notes || undefined
+      payout: service.payout
+      // Note: Other custom fields removed temporarily to test basic session creation
+      // discount, wob, vip_number, nationality, payment_method, addon_items, addon_custom_amount, notes
     };
 
     // Validation will be handled on the server side
 
     try {
+      console.log('🚀 Creating session with data:', sessionData);
       const response = await fetch('/api/sessions?action=create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1643,10 +1720,13 @@ export default function Home() {
       });
       
       const result = await response.json();
+      console.log('📊 Session creation response:', { ok: response.ok, result });
       
       if (!response.ok) {
+        console.error('❌ Session creation failed:', result.error);
         setError(result.error);
       } else if (result.data) {
+        console.log('✅ Session created successfully:', result.data);
         const data = result.data;
         // Update therapist statuses
         setTherapists(prev => prev.map(t => 
@@ -1678,9 +1758,60 @@ export default function Home() {
         };
         setActiveSessions(prev => [...prev, newSession]);
 
-        // Remove booking if it exists
+        // Delete the booking after successful session creation
         if (bookingId) {
-          setBookings(prev => prev.filter(b => b.id !== bookingId));
+          console.log('🗑️ Deleting booking after successful session creation:', bookingId);
+          
+          try {
+            // First, remove the booking_id reference from the session to avoid foreign key constraint
+            console.log('🔗 Removing booking_id reference from session:', data.id);
+            const updateSessionResponse = await fetch('/api/sessions?action=update', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sessionId: data.id,
+                updates: { booking_id: null }
+              })
+            });
+            
+            if (updateSessionResponse.ok) {
+              console.log('✅ Session booking_id reference removed');
+            } else {
+              console.log('⚠️ Failed to remove booking_id reference, proceeding with deletion anyway');
+            }
+            
+            // Now delete the booking
+            const deleteResponse = await fetch('/api/bookings', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: bookingId
+              })
+            });
+            
+            const deleteResult = await deleteResponse.json();
+            console.log('📊 Booking deletion response:', { ok: deleteResponse.ok, result: deleteResult });
+            
+            if (deleteResponse.ok) {
+              console.log('✅ Booking deleted successfully from database');
+            } else {
+              console.error('❌ Failed to delete booking from database:', deleteResult.error);
+            }
+          } catch (error) {
+            console.error('❌ Failed to delete booking:', error);
+            // Continue anyway - the session was created successfully
+          }
+          
+          // Remove booking from local state
+          setBookings(prev => {
+            console.log('Before deletion - bookings with this ID:', prev.filter(b => b.id === bookingId));
+            const updated = prev.filter(b => b.id !== bookingId);
+            console.log('After deletion - bookings with this ID:', updated.filter(b => b.id === bookingId));
+            console.log('Remaining bookings count:', updated.length);
+            return updated;
+          });
+        } else {
+          console.log('ℹ️ No bookingId provided, skipping booking deletion');
         }
       }
     } catch (err) {
@@ -1839,15 +1970,24 @@ export default function Home() {
       },
       
       onBookingChange: (event) => {
-        console.log('Booking change received:', event);
+        console.log('🔄 Real-time booking change received:', event);
         if (event.eventType === 'INSERT' && event.new) {
+          console.log('➕ Adding new booking:', event.new);
           setBookings(prev => [...prev, event.new! as BookingWithDetails]);
         } else if (event.eventType === 'UPDATE' && event.new) {
+          console.log('🔄 Updating booking:', event.new);
           setBookings(prev => prev.map(b => 
             b.id === event.new!.id ? { ...b, ...event.new! } : b
           ));
         } else if (event.eventType === 'DELETE' && event.old) {
-          setBookings(prev => prev.filter(b => b.id !== event.old!.id));
+          console.log('🗑️ Real-time booking deletion received:', event.old);
+          setBookings(prev => {
+            const beforeCount = prev.length;
+            const updated = prev.filter(b => b.id !== event.old!.id);
+            const afterCount = updated.length;
+            console.log(`📊 Booking deletion: ${beforeCount} → ${afterCount} bookings`);
+            return updated;
+          });
         }
       },
       
@@ -1946,6 +2086,11 @@ export default function Home() {
         if (therapistId) {
           const therapist = therapists.find(t => t.id === therapistId);
           if (therapist) {
+            // Clear any existing booking data to ensure we start a new session
+            console.log('🆕 Starting new session for therapist:', therapist.name);
+            console.log('🧹 Clearing booking data before opening modal');
+            setSelectedBookingForSession(null);
+            bookingForSessionRef.current = null;
             setSelectedTherapistForBooking(therapist);
             setIsSessionModalOpen(true);
           }
@@ -1980,64 +2125,8 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-200 antialiased flex flex-col">
-      {/* Header */}
-      <header className="bg-gray-900/80 backdrop-blur-sm p-4 shadow-lg sticky top-0 z-20 border-b border-gray-700 flex-shrink-0">
-        <h1 className="text-2xl font-bold text-center text-white tracking-wider">HAKUMI NURU MASSAGE</h1>
-        <p className="text-center text-sm text-gray-400">Operations Command Center</p>
-        <DateTimeDisplay />
-        
-        {/* Error Display */}
-        {error && (
-          <div className="mt-4 bg-red-900/50 border border-red-500 text-red-200 px-4 py-2 rounded-lg text-center">
-            {error}
-          </div>
-        )}
-        
-        {/* Loading Indicator */}
-        {isLoading && (
-          <div className="mt-4 bg-blue-900/50 border border-blue-500 text-blue-200 px-4 py-2 rounded-lg text-center">
-            Processing...
-          </div>
-        )}
-
-        {/* Temporary Reset Button - Development Only */}
-        {process.env.NODE_ENV !== 'production' && (
-          <div className="mt-4 flex justify-center">
-            <button
-              onClick={async () => {
-                if (confirm('⚠️ This will clear ALL test data (bookings, sessions, expenses, etc.) but preserve therapist roster, services, and rooms. Continue?')) {
-                  try {
-                    setIsLoading(true);
-                    const response = await fetch('/api/reset-data', {
-                      method: 'POST',
-                      headers: {
-                        'Content-Type': 'application/json',
-                      },
-                    });
-                    
-                    const result = await response.json();
-                    
-                    if (result.success) {
-                      alert('✅ Data reset completed! Page will reload...');
-                      window.location.reload();
-                    } else {
-                      alert(`❌ Reset failed: ${result.error}`);
-                    }
-                  } catch (error) {
-                    alert(`❌ Reset failed: ${error}`);
-                  } finally {
-                    setIsLoading(false);
-                  }
-                }
-              }}
-              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 border border-red-500"
-              disabled={isLoading}
-            >
-              🧹 Reset Test Data
-            </button>
-          </div>
-        )}
-      </header>
+      {/* Integrated Global Header with User Data */}
+      <GlobalHeader user={user} error={error} isLoading={isLoading} />
 
       {/* Main Content Area */}
       <main className="flex flex-1 overflow-hidden">
@@ -2130,11 +2219,10 @@ export default function Home() {
                           {walkout.count} {walkout.count > 1 ? 'people' : 'person'}
                         </span>
                         <span className="text-gray-400 text-xs">
-                          {' '}at {new Date(walkout.created_at).toLocaleTimeString('en-US', { 
+                          {' '}at {new Date(walkout.created_at).toLocaleTimeString('th-TH', { 
                             hour: '2-digit', 
                             minute: '2-digit',
-                            hour12: false,
-                            timeZone: 'UTC'
+                            hour12: false
                           })}
                         </span>
                       </div>
@@ -2225,10 +2313,10 @@ export default function Home() {
               </button>
             </div>
             <button 
-              onClick={() => setIsSessionModalOpen(true)}
-              className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-lg"
+              onClick={() => setIsDailySessionViewModalOpen(true)}
+              className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-lg"
             >
-              ✨ Start New Session
+              📅 Today&apos;s Sessions ({activeSessions.length + completedSessions.length})
             </button>
           </div>
         </div>
@@ -2359,6 +2447,16 @@ export default function Home() {
         onClose={() => setIsEndOfDayModalOpen(false)}
         onConfirmEndOfDay={handleEndOfDay}
         activeSessionsCount={activeSessions.filter(s => s.status === 'In Progress').length}
+      />
+
+      {/* Daily Session View Modal */}
+      <DailySessionViewModal
+        isOpen={isDailySessionViewModalOpen}
+        onClose={() => setIsDailySessionViewModalOpen(false)}
+        sessions={[...activeSessions, ...completedSessions]}
+        onEditSession={handleModifySession}
+        onCompleteSession={completeSession}
+        onDeleteSession={handleDeleteSession}
       />
     </div>
   );

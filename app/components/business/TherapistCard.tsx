@@ -85,7 +85,16 @@ export default function TherapistCard({
   };
 
   const getTherapistBookings = (therapistId: string) => {
-    return bookings.filter(b => b.therapist_ids.includes(therapistId));
+    // All bookings are now "Scheduled" since we delete them when starting sessions
+    const therapistBookings = bookings.filter(b => b.therapist_ids.includes(therapistId));
+    
+    // Debug logging (commented out to reduce console spam)
+    // console.log(`🎯 Therapist ${therapistId} bookings:`, {
+    //   total: therapistBookings.length,
+    //   bookings: therapistBookings.map(b => ({ id: b.id, service: b.service?.name }))
+    // });
+    
+    return therapistBookings;
   };
 
 
