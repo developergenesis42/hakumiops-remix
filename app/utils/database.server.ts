@@ -438,9 +438,17 @@ export async function deleteSession(id: string): Promise<{ error: string | null 
 export async function getBookings(): Promise<{ data: Booking[]; error: string | null }> {
   try {
     const { supabase } = createClient();
+    
+    // Get bookings from the last 2 days and future bookings
+    const twoDaysAgo = new Date();
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    twoDaysAgo.setHours(0, 0, 0, 0); // Start of day
+    
     const { data, error } = await supabase
       .from("bookings")
       .select("*")
+      .gte("start_time", twoDaysAgo.toISOString())
+      .neq("status", "Cancelled") // Exclude cancelled bookings
       .order("start_time", { ascending: true });
 
     if (error) throw error;
@@ -457,10 +465,17 @@ export async function getBookingsWithDetails(): Promise<{ data: BookingWithDetai
   try {
     const { supabase } = createClient();
     
-    // First get all bookings
+    // Get bookings from the last 2 days and future bookings
+    const twoDaysAgo = new Date();
+    twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+    twoDaysAgo.setHours(0, 0, 0, 0); // Start of day
+    
+    // First get filtered bookings
     const { data: bookings, error: bookingsError } = await supabase
       .from("bookings")
       .select("*")
+      .gte("start_time", twoDaysAgo.toISOString())
+      .neq("status", "Cancelled") // Exclude cancelled bookings
       .order("start_time", { ascending: true });
 
     if (bookingsError) throw bookingsError;
@@ -623,6 +638,87 @@ export async function updateBooking(id: string, updates: UpdateBookingForm): Pro
     return { 
       data: null, 
       error: error instanceof Error ? error.message : 'Failed to update booking' 
+    };
+  }
+}
+
+// ============================================================================
+// BOOKING CLEANUP OPERATIONS
+// ============================================================================
+
+export async function cleanupOldBookings(): Promise<{ deletedCount: number; error: string | null }> {
+  try {
+    const { supabase } = createClient();
+    
+    // Delete completed or cancelled bookings older than 7 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+    
+    const { data, error } = await supabase
+      .from("bookings")
+      .delete()
+      .in("status", ["Completed", "Cancelled"])
+      .lt("start_time", sevenDaysAgo.toISOString())
+      .select("id");
+
+    if (error) throw error;
+    
+    return { 
+      deletedCount: data?.length || 0, 
+      error: null 
+    };
+  } catch (error) {
+    return { 
+      deletedCount: 0, 
+      error: error instanceof Error ? error.message : 'Failed to cleanup old bookings' 
+    };
+  }
+}
+
+export async function getAllBookingsForCleanup(): Promise<{ data: Booking[]; error: string | null }> {
+  try {
+    const { supabase } = createClient();
+    const { data, error } = await supabase
+      .from("bookings")
+      .select("*")
+      .order("start_time", { ascending: false });
+
+    if (error) throw error;
+    return { data: data || [], error: null };
+  } catch (error) {
+    return { 
+      data: [], 
+      error: error instanceof Error ? error.message : 'Failed to fetch all bookings' 
+    };
+  }
+}
+
+export async function expireOldScheduledBookings(): Promise<{ expiredCount: number; error: string | null }> {
+  try {
+    const { supabase } = createClient();
+    
+    // Mark scheduled bookings older than 2 hours as cancelled (no-show)
+    const twoHoursAgo = new Date();
+    twoHoursAgo.setHours(twoHoursAgo.getHours() - 2);
+    
+    const { data, error } = await supabase
+      .from("bookings")
+      .update({ status: 'Cancelled' })
+      .eq("status", "Scheduled")
+      .lt("start_time", twoHoursAgo.toISOString())
+      .select("id");
+
+    if (error) throw error;
+    
+    return { 
+      expiredCount: data?.length || 0, 
+      error: null 
+    };
+  } catch (error) {
+    return { 
+      expiredCount: 0, 
+      error: error instanceof Error ? error.message : 'Failed to expire old scheduled bookings' 
     };
   }
 }
@@ -1018,16 +1114,17 @@ export async function getMonthlyData(month: string): Promise<{ data: Record<stri
         // Aggregate therapist performance
         if (reportData.therapist_summaries && Array.isArray(reportData.therapist_summaries)) {
           reportData.therapist_summaries.forEach((therapist: Record<string, unknown>) => {
-            if (!therapistPerformance[therapist.name]) {
-              therapistPerformance[therapist.name] = {
-                name: therapist.name,
+            const therapistName = therapist.name as string;
+            if (!therapistPerformance[therapistName]) {
+              therapistPerformance[therapistName] = {
+                name: therapistName,
                 sessions: 0,
                 revenue: 0,
                 expenses: 0
               };
             }
-            therapistPerformance[therapist.name].sessions += Number(therapist.session_count || 0);
-            therapistPerformance[therapist.name].expenses += Number(therapist.total_expenses || 0);
+            therapistPerformance[therapistName].sessions += Number(therapist.session_count || 0);
+            therapistPerformance[therapistName].expenses += Number(therapist.total_expenses || 0);
           });
         }
       }
