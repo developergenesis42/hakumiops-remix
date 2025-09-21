@@ -7,7 +7,7 @@ export type RoomType = 'Shower' | 'Large Shower' | 'VIP Jacuzzi';
 export type RoomStatus = 'Available' | 'Occupied';
 export type ServiceCategory = '1 Lady' | '2 Ladies' | 'Couple';
 export type SessionStatus = 'Ready' | 'In Progress' | 'Completed';
-export type BookingStatus = 'Scheduled' | 'Completed' | 'Cancelled';
+export type BookingStatus = 'Scheduled' | 'Started' | 'Completed' | 'Cancelled';
 export type WalkoutReason = 'No Rooms' | 'No Ladies' | 'Price Too High' | 'Client Too Picky' | 'Chinese' | 'Laowai';
 
 // ============================================================================
@@ -238,6 +238,7 @@ export interface UpdateBookingForm {
   endTime: string; // ISO timestamp string
   roomId?: string;
   note?: string;
+  status?: BookingStatus; // For status updates (e.g., end of day process)
 }
 
 export interface AddExpenseForm {

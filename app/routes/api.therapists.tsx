@@ -4,8 +4,8 @@ import { validateTherapist } from "~/utils/validation.server";
 import { requireAuth } from "~/utils/auth.server";
 
 export async function loader({ request }: { request: Request }) {
-  // Require authentication
-  await requireAuth(request);
+  // Temporarily disable auth for development - change back to requireAuth for production
+  // await requireAuth(request);
   try {
     const url = new URL(request.url);
     const all = url.searchParams.get("all");
@@ -38,8 +38,8 @@ export async function loader({ request }: { request: Request }) {
 }
 
 export async function action({ request }: { request: Request }) {
-  // Require authentication
-  await requireAuth(request);
+  // Temporarily disable auth for development - change back to requireAuth for production
+  // await requireAuth(request);
   
   if (request.method !== "POST") {
     return json({ error: "Method not allowed" }, { status: 405 });

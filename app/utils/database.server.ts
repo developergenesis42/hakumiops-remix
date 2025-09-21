@@ -597,8 +597,10 @@ export async function updateBooking(id: string, updates: UpdateBookingForm): Pro
       dbUpdates.note = updates.note;
     }
     
-    // Note: status updates are not part of UpdateBookingForm
-    // If needed, they should be handled separately
+    // Handle status updates (for end of day process)
+    if (updates.status !== undefined) {
+      dbUpdates.status = updates.status;
+    }
     
     console.log('Database updates (snake_case):', dbUpdates);
     

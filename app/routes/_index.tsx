@@ -898,10 +898,9 @@ export default function Home() {
             })
           });
           
-          // Update local booking state
-          setBookings(prev => prev.map(b => 
-            b.id === session.booking_id ? { ...b, status: 'Completed' as const } : b
-          ));
+          // Remove completed booking from UI (clean up)
+          setBookings(prev => prev.filter(b => b.id !== session.booking_id));
+          console.log(`📅 Completed booking ${session.booking_id} removed from UI`);
         } catch (error) {
           console.error('Failed to update booking status to Completed:', error);
           // Continue anyway - the session was completed successfully
@@ -974,7 +973,6 @@ export default function Home() {
       const remaining = endTime.getTime() - now.getTime();
       
       if (remaining <= 0) {
-        console.log(`Session ${sessionId} timer expired, auto-completing`);
         // Session finished - clear timer immediately to prevent multiple calls
         if (sessionTimersRef.current[sessionId]) {
           clearInterval(sessionTimersRef.current[sessionId]);
@@ -997,7 +995,6 @@ export default function Home() {
     const timeoutMs = endTime.getTime() - Date.now();
     if (timeoutMs > 0) {
       const timeoutId = setTimeout(() => {
-        console.log(`Session ${sessionId} timeout backup triggered`);
         // Clear the interval if it's still running
         if (sessionTimersRef.current[sessionId]) {
           clearInterval(sessionTimersRef.current[sessionId]);
@@ -1425,14 +1422,38 @@ export default function Home() {
       // Clear any remaining active sessions
       setActiveSessions([]);
       
-      // Clear today's bookings (keep future bookings)
+      // Update today's bookings to "Completed" status and clear from UI
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       tomorrow.setHours(0, 0, 0, 0);
       
+      // Get today's bookings that need to be completed
+      const todaysBookings = bookings.filter(booking => 
+        new Date(booking.start_time) < tomorrow
+      );
+      
+      // Update each booking to "Completed" status in database
+      for (const booking of todaysBookings) {
+        try {
+          await fetch('/api/bookings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: booking.id,
+              status: 'Completed'
+            })
+          });
+          console.log(`📅 Updated booking ${booking.id} to Completed status`);
+        } catch (error) {
+          console.error(`Failed to update booking ${booking.id} to Completed:`, error);
+        }
+      }
+      
+      // Remove today's bookings from UI (keep future bookings)
       setBookings(prev => prev.filter(booking => 
         new Date(booking.start_time) >= tomorrow
       ));
+      console.log(`📅 Cleared ${todaysBookings.length} completed bookings from UI`);
       
       // Clear today's walkouts from dashboard (data is archived in daily report)
       setWalkouts([]);
@@ -1582,7 +1603,7 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  }, [therapists, financials, completedSessions, walkouts, shopExpenses, activeSessions, setError, setIsLoading]);
+  }, [therapists, financials, completedSessions, walkouts, shopExpenses, activeSessions, bookings, setError, setIsLoading]);
 
 
   const handleLogWalkout = async () => {
@@ -1758,58 +1779,37 @@ export default function Home() {
         };
         setActiveSessions(prev => [...prev, newSession]);
 
-        // Delete the booking after successful session creation
+        // Update booking status to 'Started' after successful session creation
         if (bookingId) {
-          console.log('🗑️ Deleting booking after successful session creation:', bookingId);
+          console.log('📅 Updating booking status to Started:', bookingId);
           
           try {
-            // First, remove the booking_id reference from the session to avoid foreign key constraint
-            console.log('🔗 Removing booking_id reference from session:', data.id);
-            const updateSessionResponse = await fetch('/api/sessions?action=update', {
-              method: 'POST',
+            const updateResponse = await fetch('/api/bookings', {
+              method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                sessionId: data.id,
-                updates: { booking_id: null }
+                id: bookingId,
+                status: 'Started'
               })
             });
             
-            if (updateSessionResponse.ok) {
-              console.log('✅ Session booking_id reference removed');
+            const updateResult = await updateResponse.json();
+            console.log('📊 Booking status update response:', { ok: updateResponse.ok, result: updateResult });
+            
+            if (updateResponse.ok) {
+              console.log('✅ Booking status updated to Started successfully');
+              // Update local booking state
+              setBookings(prev => prev.map(b => 
+                b.id === bookingId ? { ...b, status: 'Started' as const } : b
+              ));
             } else {
-              console.log('⚠️ Failed to remove booking_id reference, proceeding with deletion anyway');
-            }
-            
-            // Now delete the booking
-            const deleteResponse = await fetch('/api/bookings', {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                id: bookingId
-              })
-            });
-            
-            const deleteResult = await deleteResponse.json();
-            console.log('📊 Booking deletion response:', { ok: deleteResponse.ok, result: deleteResult });
-            
-            if (deleteResponse.ok) {
-              console.log('✅ Booking deleted successfully from database');
-            } else {
-              console.error('❌ Failed to delete booking from database:', deleteResult.error);
+              console.error('❌ Failed to update booking status to Started:', updateResult.error);
+              // Continue anyway - the session was created successfully
             }
           } catch (error) {
-            console.error('❌ Failed to delete booking:', error);
+            console.error('❌ Failed to update booking status:', error);
             // Continue anyway - the session was created successfully
           }
-          
-          // Remove booking from local state
-          setBookings(prev => {
-            console.log('Before deletion - bookings with this ID:', prev.filter(b => b.id === bookingId));
-            const updated = prev.filter(b => b.id !== bookingId);
-            console.log('After deletion - bookings with this ID:', updated.filter(b => b.id === bookingId));
-            console.log('Remaining bookings count:', updated.length);
-            return updated;
-          });
         } else {
           console.log('ℹ️ No bookingId provided, skipping booking deletion');
         }
@@ -1829,7 +1829,7 @@ export default function Home() {
 
     const startTime = new Date();
     // DEBUG: Make timer expire in 10 seconds for testing
-    const debugMode = false; // Set to false for production
+    const debugMode = false; // Set to true for testing auto-completion
     const endTime = debugMode 
       ? new Date(startTime.getTime() + 10 * 1000) // 10 seconds for debugging
       : new Date(startTime.getTime() + session.duration * 60 * 1000); // Normal duration

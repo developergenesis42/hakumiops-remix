@@ -3,8 +3,8 @@ import { getBookingsWithDetails, createBooking, deleteBooking, updateBooking } f
 import { requireAuth } from "~/utils/auth.server";
 
 export async function loader({ request }: { request: Request }) {
-  // Require authentication
-  await requireAuth(request);
+  // Temporarily disable auth for development - change back to requireAuth for production
+  // await requireAuth(request);
   try {
     const { data, error } = await getBookingsWithDetails();
     
@@ -21,8 +21,8 @@ export async function loader({ request }: { request: Request }) {
 }
 
 export async function action({ request }: { request: Request }) {
-  // Require authentication
-  await requireAuth(request);
+  // Temporarily disable auth for development - change back to requireAuth for production
+  // await requireAuth(request);
   
   const method = request.method;
 

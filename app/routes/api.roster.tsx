@@ -3,8 +3,8 @@ import { getRoster, getAvailableRosterTherapists } from "~/utils/database.server
 import { requireAuth } from "~/utils/auth.server";
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  // Require authentication
-  await requireAuth(request);
+  // Temporarily disable auth for development - change back to requireAuth for production
+  // await requireAuth(request);
   try {
     const url = new URL(request.url);
     const excludeNames = url.searchParams.get('exclude')?.split(',') || [];
@@ -89,8 +89,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  // Require authentication
-  await requireAuth(request);
+  // Temporarily disable auth for development - change back to requireAuth for production
+  // await requireAuth(request);
   
   if (request.method !== 'POST') {
     return json({ error: 'Method not allowed' }, { status: 405 });

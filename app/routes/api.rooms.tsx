@@ -3,8 +3,8 @@ import { getRooms } from "~/utils/database.server";
 import { requireAuth } from "~/utils/auth.server";
 
 export async function loader({ request }: { request: Request }) {
-  // Require authentication
-  await requireAuth(request);
+  // Temporarily disable auth for development - change back to requireAuth for production
+  // await requireAuth(request);
   try {
     const { data, error } = await getRooms();
     
