@@ -27,8 +27,16 @@ export async function loader({ request }: { request: Request }) {
   try {
     // Enable auth for development - user should be logged in to access dashboard
     const { requireAuth, getUserData } = await import("~/utils/auth.server");
-    await requireAuth(request); // This will throw if not authenticated
     
+    // Check authentication first
+    try {
+      await requireAuth(request); // This will throw if not authenticated
+    } catch (error) {
+      console.log("Loader: Authentication failed, redirecting to login");
+      return redirect("/login");
+    }
+    
+    // Get user data
     let user = null;
     try {
       user = await getUserData(request);
