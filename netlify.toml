@@ -7,6 +7,10 @@ publish = "build/client"
 NODE_ENV = "production"
 SESSION_SECRET = "d366d21f0ce32b45cf2bead6ef71e538c0e74dc28dbf084e9044ada82243e5f7"
 
+# Environment variables for functions
+[functions]
+  environment = { SESSION_SECRET = "d366d21f0ce32b45cf2bead6ef71e538c0e74dc28dbf084e9044ada82243e5f7" }
+
 [dev]
 command = "npm run dev"
 framework = "vite"
