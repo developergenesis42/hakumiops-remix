@@ -25,18 +25,18 @@ import { Room, Therapist, SessionWithDetails, BookingWithDetails, ShopExpense, W
 
 export async function loader({ request }: { request: Request }) {
   try {
-    // Require authentication - redirect to login if not authenticated
-    const { requireAuth, getUserData } = await import("~/utils/auth.server");
-    await requireAuth(request); // This will throw if not authenticated
+    // Temporarily disable auth for development - change back to requireAuth for production
+    // const { requireAuth, getUserData } = await import("~/utils/auth.server");
+    // await requireAuth(request); // This will throw if not authenticated
     
     let user = null;
-    try {
-      user = await getUserData(request);
-    } catch (error) {
-      console.log("Loader: Error fetching user data:", error);
-      // If we can't get user data, redirect to login
-      return redirect("/login");
-    }
+    // try {
+    //   user = await getUserData(request);
+    // } catch (error) {
+    //   console.log("Loader: Error fetching user data:", error);
+    //   // If we can't get user data, redirect to login
+    //   return redirect("/login");
+    // }
     
     // console.log("Loader: Starting to load data...");
     
