@@ -50,6 +50,46 @@ function DateTimeDisplay() {
 }
 
 export default function GlobalHeader({ user, error, isLoading }: GlobalHeaderProps) {
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+
+  const handleResetClick = () => {
+    setShowResetConfirm(true);
+  };
+
+  const handleResetConfirm = async () => {
+    setIsResetting(true);
+    try {
+      const response = await fetch('/api/reset-therapist-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({})
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Reset successful:', result);
+        // Reload the page to reflect the changes
+        window.location.reload();
+      } else {
+        const error = await response.json();
+        console.error('Reset failed:', error);
+        alert('Reset failed: ' + (error.error || 'Unknown error'));
+      }
+    } catch (error) {
+      console.error('Reset error:', error);
+      alert('Reset failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    } finally {
+      setIsResetting(false);
+      setShowResetConfirm(false);
+    }
+  };
+
+  const handleResetCancel = () => {
+    setShowResetConfirm(false);
+  };
 
   return (
     <header className="bg-gray-900/80 backdrop-blur-sm shadow-lg border-b border-gray-700 relative z-40">
@@ -123,9 +163,50 @@ export default function GlobalHeader({ user, error, isLoading }: GlobalHeaderPro
               </div>
             )}
             
+            {/* Reset Button - Only show in development */}
+            {process.env.NODE_ENV !== 'production' && (
+              <button
+                onClick={handleResetClick}
+                className="px-3 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isResetting}
+              >
+                {isResetting ? "Resetting..." : "Reset Data"}
+              </button>
+            )}
+            
           </div>
         </div>
       </div>
+      
+      {/* Reset Confirmation Modal */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="bg-white rounded-lg p-6 max-w-md mx-4">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Reset Therapist Data
+            </h3>
+            <p className="text-sm text-gray-600 mb-6">
+              This will permanently delete all therapist data, sessions, bookings, and related information. 
+              This action cannot be undone. Are you sure you want to continue?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={handleResetCancel}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 hover:bg-gray-300 rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleResetConfirm}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isResetting}
+              >
+                {isResetting ? "Resetting..." : "Yes, Reset Data"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 }
