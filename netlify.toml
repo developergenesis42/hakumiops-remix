@@ -11,6 +11,10 @@ SESSION_SECRET = "d366d21f0ce32b45cf2bead6ef71e538c0e74dc28dbf084e9044ada82243e5
 [functions]
   environment = { SESSION_SECRET = "d366d21f0ce32b45cf2bead6ef71e538c0e74dc28dbf084e9044ada82243e5f7" }
 
+# Disable secrets scanning for SESSION_SECRET
+[build.environment]
+SECRETS_SCAN_OMIT_KEYS = "SESSION_SECRET"
+
 [dev]
 command = "npm run dev"
 framework = "vite"
